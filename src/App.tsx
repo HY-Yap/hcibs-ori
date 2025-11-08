@@ -11,6 +11,7 @@ import { LeaderboardPage } from "./pages/Leaderboard";
 import { StationsPage } from "./pages/Stations";
 import { SideQuestsPage } from "./pages/SideQuests";
 import { AdminStationManagement } from './pages/AdminStationManagement';
+import { AdminSideQuestManagement } from './pages/SideQuestManagement';
 
 // Import all our components
 import { Layout } from "./components/Layout";
@@ -37,6 +38,7 @@ function App() {
             <Route path="admin" element={<AdminDashboard />} />
             <Route path="admin/users" element={<AdminUserManagement />} />
             <Route path="admin/stations" element={<AdminStationManagement />} />
+            <Route path="admin/sidequests" element={<AdminSideQuestManagement />} />
           </Route>
 
           {/* SM ROUTES (protected) */}
