@@ -34,6 +34,7 @@ const adminNavLinks = [
   { name: "Admin Dashboard", path: "/admin" },
   { name: "Manage Users", path: "/admin/users" },
   { name: "Manage Stations", path: "/admin/stations" },
+  { name: "Manage Side Quests", path: "/admin/sidequests" },
   // We'll add 'Game Control', 'Score Log', etc. here later
 ];
 

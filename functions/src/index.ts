@@ -24,22 +24,24 @@ interface StationData {
   description: string;
   location: string;
 }
+// --- NEW INTERFACE FOR SIDE QUESTS ---
+interface SideQuestData {
+  id?: string;
+  name: string;
+  description: string;
+  points: number;
+  submissionType: 'photo' | 'video' | 'none';
+  isSmManaged: boolean;
+}
 
 // ===================================================================
 // 1. CREATE USER
 // ===================================================================
 export const createUser = onCall(
   async (request: CallableRequest<CreateUserData>) => {
-
-  if (!request.auth) {
-    throw new HttpsError("unauthenticated", "You must be logged in.");
-  }
-
-  const callerUid = request.auth.uid;
-  const callerDoc = await admin.firestore().collection("users").doc(callerUid).get();
-  if (callerDoc.data()?.role !== "ADMIN") {
-    throw new HttpsError("permission-denied", "Admin only.");
-  }
+  if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
+  const callerDoc = await admin.firestore().collection("users").doc(request.auth.uid).get();
+  if (callerDoc.data()?.role !== "ADMIN") throw new HttpsError("permission-denied", "Admin only.");
 
   const { username, password, displayName, role } = request.data;
   const email = `${username}@hcibso.app`;
@@ -58,7 +60,6 @@ export const createUser = onCall(
 // ===================================================================
 export const deleteUser = onCall(
   async (request: CallableRequest<DeleteUserData>) => {
-
   if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
   const callerDoc = await admin.firestore().collection("users").doc(request.auth.uid).get();
   if (callerDoc.data()?.role !== "ADMIN") throw new HttpsError("permission-denied", "Admin only.");
@@ -67,7 +68,7 @@ export const deleteUser = onCall(
   try {
     await admin.auth().deleteUser(request.data.uid);
     await admin.firestore().collection("users").doc(request.data.uid).delete();
-    return { success: true, message: `Deleted user.` };
+    return { success: true };
   } catch (error: any) {
     throw new HttpsError("internal", error.message);
   }
@@ -76,10 +77,8 @@ export const deleteUser = onCall(
 // ===================================================================
 // 3. DELETE ALL USERS
 // ===================================================================
-// We use 'void' here because this function takes NO data.
 export const deleteAllUsers = onCall(
   async (request: CallableRequest<void>) => {
-    
   if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
   const callerDoc = await admin.firestore().collection("users").doc(request.auth.uid).get();
   if (callerDoc.data()?.role !== "ADMIN") throw new HttpsError("permission-denied", "Admin only.");
@@ -106,19 +105,13 @@ export const deleteAllUsers = onCall(
 // ===================================================================
 export const createStation = onCall(
   async (request: CallableRequest<StationData>) => {
-    
   if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
   const callerDoc = await admin.firestore().collection("users").doc(request.auth.uid).get();
   if (callerDoc.data()?.role !== "ADMIN") throw new HttpsError("permission-denied", "Admin only.");
 
   try {
     const ref = admin.firestore().collection("stations").doc();
-    await ref.set({
-      ...request.data,
-      status: "OPEN",
-      travelingCount: 0,
-      arrivedCount: 0,
-    });
+    await ref.set({ ...request.data, status: "OPEN", travelingCount: 0, arrivedCount: 0 });
     return { success: true, id: ref.id };
   } catch (error: any) {
     throw new HttpsError("internal", error.message);
@@ -130,13 +123,47 @@ export const createStation = onCall(
 // ===================================================================
 export const deleteStation = onCall(
   async (request: CallableRequest<{ id: string }>) => {
-    
   if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
   const callerDoc = await admin.firestore().collection("users").doc(request.auth.uid).get();
   if (callerDoc.data()?.role !== "ADMIN") throw new HttpsError("permission-denied", "Admin only.");
 
   try {
     await admin.firestore().collection("stations").doc(request.data.id).delete();
+    return { success: true };
+  } catch (error: any) {
+    throw new HttpsError("internal", error.message);
+  }
+});
+
+// ===================================================================
+// 6. CREATE SIDE QUEST (NEW! V2 SYNTAX)
+// ===================================================================
+export const createSideQuest = onCall(
+  async (request: CallableRequest<SideQuestData>) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
+  const callerDoc = await admin.firestore().collection("users").doc(request.auth.uid).get();
+  if (callerDoc.data()?.role !== "ADMIN") throw new HttpsError("permission-denied", "Admin only.");
+
+  try {
+    const ref = admin.firestore().collection("sideQuests").doc();
+    await ref.set(request.data);
+    return { success: true, id: ref.id };
+  } catch (error: any) {
+    throw new HttpsError("internal", error.message);
+  }
+});
+
+// ===================================================================
+// 7. DELETE SIDE QUEST (NEW! V2 SYNTAX)
+// ===================================================================
+export const deleteSideQuest = onCall(
+  async (request: CallableRequest<{ id: string }>) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
+  const callerDoc = await admin.firestore().collection("users").doc(request.auth.uid).get();
+  if (callerDoc.data()?.role !== "ADMIN") throw new HttpsError("permission-denied", "Admin only.");
+
+  try {
+    await admin.firestore().collection("sideQuests").doc(request.data.id).delete();
     return { success: true };
   } catch (error: any) {
     throw new HttpsError("internal", error.message);
