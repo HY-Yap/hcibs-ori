@@ -32,27 +32,26 @@ const style = {
   overflowY: "auto",
 };
 
-// Needs to match the data we get from Firestore
 export interface StationData {
   id?: string;
   name: string;
   type: "manned" | "unmanned";
   location?: string;
   description?: string;
-  status?: string; // Optional because we don't edit it here
+  status?: string;
 }
 
 interface StationModalProps {
   open: boolean;
   onClose: () => void;
-  onStationAdded: () => void; // Renamed conceptually to 'onSuccess' but keeping same name is fine
+  onSuccess: () => void;
   initialData?: StationData | null; // <-- NEW: For editing
 }
 
 export const StationModal: FC<StationModalProps> = ({
   open,
   onClose,
-  onStationAdded,
+  onSuccess,
   initialData,
 }) => {
   const [name, setName] = useState("");
@@ -62,7 +61,7 @@ export const StationModal: FC<StationModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // --- POPULATE FORM ON OPEN ---
+  // --- POPULATE FORM ON OPEN (If editing) ---
   useEffect(() => {
     if (open && initialData) {
       setName(initialData.name);
@@ -70,6 +69,7 @@ export const StationModal: FC<StationModalProps> = ({
       setLocation(initialData.location || "");
       setDescription(initialData.description || "");
     } else if (open && !initialData) {
+      // Reset if creating new
       setName("");
       setType("");
       setLocation("");
@@ -100,7 +100,7 @@ export const StationModal: FC<StationModalProps> = ({
         await createFn({ name, type, location, description });
       }
 
-      onStationAdded();
+      onSuccess();
       onClose();
     } catch (err: any) {
       console.error("Error saving station:", err);
