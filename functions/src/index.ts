@@ -5,25 +5,24 @@ import * as admin from "firebase-admin";
 admin.initializeApp();
 
 // --- 1. DEFINE THE SHAPE OF OUR DATA ---
-// This tells TypeScript what 'request.data' will look like
 interface CreateUserData {
   username: string;
   password: string;
   displayName: string;
   role: 'ADMIN' | 'SM' | 'OGL';
 }
+// --- NEW! ---
+interface DeleteUserData {
+  uid: string; // The ID of the user to delete
+}
 
-/**
- * A (callable) Cloud Function to create a new user.
- * This function can only be called by a user who is already an Admin.
- */
-
-// --- 2. USE THE MODERN v2+ FUNCTION SIGNATURE ---
+// ===================================================================
+// CREATE USER FUNCTION (Already built)
+// ===================================================================
 export const createUser = functions.https.onCall(
   async (request: functions.https.CallableRequest<CreateUserData>) => {
 
   // 1. CHECK AUTHENTICATION & AUTHORIZATION
-  // In v2+, auth info is inside request.auth
   if (!request.auth) {
     throw new functions.https.HttpsError(
       "unauthenticated",
@@ -31,7 +30,6 @@ export const createUser = functions.https.onCall(
     );
   }
 
-  // Check if the user is an Admin.
   const callerUid = request.auth.uid;
   const callerDoc = await admin
     .firestore()
@@ -49,11 +47,9 @@ export const createUser = functions.https.onCall(
   }
 
   // 2. GET DATA FROM THE FRONT-END
-  // In v2+, data is inside request.data
   const { username, password, displayName, role } = request.data;
-  const email = `${username}@hcibso.app`; // Create a "fake" email
+  const email = `${username}@hcibso.app`;
 
-  // Validation
   if (!email || !password || !displayName || !role) {
     throw new functions.https.HttpsError(
       "invalid-argument",
@@ -86,8 +82,74 @@ export const createUser = functions.https.onCall(
       uid: newUserId,
     };
   } catch (error: any) {
-    // Handle errors (e.g., "email already exists")
     console.error("Error creating user:", error);
+    throw new functions.https.HttpsError(
+      "internal",
+      error.message || "An unknown error occurred."
+    );
+  }
+});
+
+
+// ===================================================================
+// NEW! DELETE USER FUNCTION
+// ===================================================================
+export const deleteUser = functions.https.onCall(
+  async (request: functions.https.CallableRequest<DeleteUserData>) => {
+
+  // 1. CHECK AUTHENTICATION & AUTHORIZATION (Same as before)
+  if (!request.auth) {
+    throw new functions.https.HttpsError(
+      "unauthenticated",
+      "You must be logged in to delete a user."
+    );
+  }
+
+  const callerUid = request.auth.uid;
+  const callerDoc = await admin
+    .firestore()
+    .collection("users")
+    .doc(callerUid)
+    .get();
+  
+  if (callerDoc.data()?.role !== "ADMIN") {
+    throw new functions.https.HttpsError(
+      "permission-denied",
+      "Only an Admin can delete users."
+    );
+  }
+
+  // 2. GET DATA
+  const uidToDelete = request.data.uid;
+  if (!uidToDelete) {
+    throw new functions.https.HttpsError(
+      "invalid-argument",
+      "Missing user ID."
+    );
+  }
+  
+  // You can't delete yourself
+  if (callerUid === uidToDelete) {
+     throw new functions.https.HttpsError(
+      "invalid-argument",
+      "You cannot delete your own account."
+    );
+  }
+
+  try {
+    // 3. DELETE USER FROM FIREBASE AUTHENTICATION
+    await admin.auth().deleteUser(uidToDelete);
+    
+    // 4. DELETE USER FROM FIRESTORE
+    await admin.firestore().collection("users").doc(uidToDelete).delete();
+
+    // 5. RETURN SUCCESS
+    return {
+      success: true,
+      message: `Successfully deleted user ${uidToDelete}`,
+    };
+  } catch (error: any) {
+    console.error("Error deleting user:", error);
     throw new functions.https.HttpsError(
       "internal",
       error.message || "An unknown error occurred."
