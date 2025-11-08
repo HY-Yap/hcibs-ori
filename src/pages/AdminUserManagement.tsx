@@ -157,7 +157,7 @@ export const AdminUserManagement: React.FC = () => {
     setDeleteLoading(true);
     setDeleteError(null);
     try {
-      const functions = getFunctions();
+      const functions = getFunctions(undefined, "asia-southeast1");
       const deleteUserFn = httpsCallable(functions, "deleteUser");
       await deleteUserFn({ uid: selectedUser.id });
       closeDeleteConfirm();
@@ -185,7 +185,7 @@ export const AdminUserManagement: React.FC = () => {
     setDeleteAllLoading(true);
     setDeleteAllError(null);
     try {
-      const functions = getFunctions();
+      const functions = getFunctions(undefined, "asia-southeast1");
       const deleteAllUsersFn = httpsCallable(functions, "deleteAllUsers");
       const result = await deleteAllUsersFn();
       const data = result.data as any;

@@ -70,7 +70,7 @@ export const AddUserModal: FC<AddUserModalProps> = ({
 
     try {
       // 1. Get a reference to our deployed 'createUser' function
-      const functions = getFunctions();
+      const functions = getFunctions(undefined, "asia-southeast1");
       const createUserFn = httpsCallable(functions, "createUser");
 
       // 2. Prepare the data to send to the function
