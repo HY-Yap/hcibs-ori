@@ -19,32 +19,36 @@ import {
   DialogContentText,
   DialogTitle,
   Chip,
+  Menu,
+  MenuItem,
+  ListItemIcon,
 } from "@mui/material";
 import { collection, getDocs } from "firebase/firestore";
 import { getFunctions, httpsCallable } from "firebase/functions";
 import { db } from "../firebase";
-import { StationModal } from "../components/StationModal";
 import DeleteIcon from "@mui/icons-material/Delete";
-
-interface StationData {
-  id: string;
-  name: string;
-  type: "manned" | "unmanned";
-  location?: string;
-  status: "OPEN" | "CLOSED_LUNCH" | "CLOSED_PERMANENTLY";
-}
+import EditIcon from "@mui/icons-material/Edit";
+import MoreVertIcon from "@mui/icons-material/MoreVert";
+// Import the interface and component
+import { StationModal, type StationData } from "../components/StationModal";
 
 export const AdminStationManagement: React.FC = () => {
   const [stations, setStations] = useState<StationData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Modal state
   const [isModalOpen, setModalOpen] = useState(false);
+  const [stationToEdit, setStationToEdit] = useState<StationData | null>(null);
+
+  // Menu state
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const [selectedStation, setSelectedStation] = useState<StationData | null>(
+    null
+  );
 
   // Delete state
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [stationToDelete, setStationToDelete] = useState<StationData | null>(
-    null
-  );
   const [deleteLoading, setDeleteLoading] = useState(false);
 
   const fetchStations = async () => {
@@ -56,7 +60,6 @@ export const AdminStationManagement: React.FC = () => {
         id: doc.id,
         ...doc.data(),
       })) as StationData[];
-      // Sort by name alphabetically
       setStations(stationList.sort((a, b) => a.name.localeCompare(b.name)));
     } catch (err) {
       console.error("Error fetching stations:", err);
@@ -70,25 +73,48 @@ export const AdminStationManagement: React.FC = () => {
     fetchStations();
   }, []);
 
-  const handleDeleteClick = (station: StationData) => {
-    setStationToDelete(station);
+  // --- HANDLERS ---
+  const handleMenuOpen = (
+    event: React.MouseEvent<HTMLElement>,
+    station: StationData
+  ) => {
+    setAnchorEl(event.currentTarget);
+    setSelectedStation(station);
+  };
+  const handleMenuClose = () => {
+    setAnchorEl(null);
+  };
+
+  const handleAddClick = () => {
+    setStationToEdit(null);
+    setModalOpen(true);
+  };
+
+  const handleEditAction = () => {
+    if (selectedStation) {
+      setStationToEdit(selectedStation);
+      setModalOpen(true);
+    }
+    handleMenuClose();
+  };
+
+  const handleDeleteAction = () => {
     setDeleteDialogOpen(true);
+    handleMenuClose();
   };
 
   const handleDeleteConfirm = async () => {
-    if (!stationToDelete) return;
+    if (!selectedStation?.id) return;
     setDeleteLoading(true);
     try {
-      // Ensure this region matches your Firebase console!
       const functions = getFunctions(undefined, "asia-southeast1");
       const deleteStationFn = httpsCallable(functions, "deleteStation");
-      await deleteStationFn({ id: stationToDelete.id });
+      await deleteStationFn({ id: selectedStation.id });
       setDeleteDialogOpen(false);
-      setStationToDelete(null);
-      fetchStations(); // Refresh list
+      fetchStations();
     } catch (err) {
       console.error("Delete failed:", err);
-      alert("Failed to delete station."); // Simple alert for now
+      alert("Failed to delete station.");
     } finally {
       setDeleteLoading(false);
     }
@@ -98,7 +124,7 @@ export const AdminStationManagement: React.FC = () => {
     <Box>
       <Box sx={{ display: "flex", justifyContent: "space-between", mb: 2 }}>
         <Typography variant="h4">Station Management</Typography>
-        <Button variant="contained" onClick={() => setModalOpen(true)}>
+        <Button variant="contained" onClick={handleAddClick}>
           + Add Station
         </Button>
       </Box>
@@ -127,12 +153,6 @@ export const AdminStationManagement: React.FC = () => {
                   <CircularProgress />
                 </TableCell>
               </TableRow>
-            ) : stations.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={5} align="center">
-                  No stations found.
-                </TableCell>
-              </TableRow>
             ) : (
               stations.map((s) => (
                 <TableRow key={s.id}>
@@ -147,17 +167,14 @@ export const AdminStationManagement: React.FC = () => {
                   <TableCell>{s.location || "-"}</TableCell>
                   <TableCell>
                     <Chip
-                      label={s.status.replace("_", " ")}
+                      label={(s.status || "OPEN").replace("_", " ")}
                       color={s.status === "OPEN" ? "success" : "error"}
                       size="small"
                     />
                   </TableCell>
                   <TableCell align="right">
-                    <IconButton
-                      color="error"
-                      onClick={() => handleDeleteClick(s)}
-                    >
-                      <DeleteIcon />
+                    <IconButton onClick={(e) => handleMenuOpen(e, s)}>
+                      <MoreVertIcon />
                     </IconButton>
                   </TableCell>
                 </TableRow>
@@ -167,26 +184,49 @@ export const AdminStationManagement: React.FC = () => {
         </Table>
       </TableContainer>
 
+      <Menu
+        anchorEl={anchorEl}
+        open={Boolean(anchorEl)}
+        onClose={handleMenuClose}
+      >
+        <MenuItem onClick={handleEditAction}>
+          <ListItemIcon>
+            <EditIcon fontSize="small" />
+          </ListItemIcon>
+          Edit
+        </MenuItem>
+        <MenuItem onClick={handleDeleteAction}>
+          <ListItemIcon>
+            <DeleteIcon fontSize="small" color="error" />
+          </ListItemIcon>
+          <Typography color="error">Delete</Typography>
+        </MenuItem>
+      </Menu>
+
       <StationModal
         open={isModalOpen}
         onClose={() => setModalOpen(false)}
         onStationAdded={fetchStations}
+        initialData={stationToEdit}
       />
 
-      {/* Delete Confirmation Dialog */}
       <Dialog
         open={deleteDialogOpen}
         onClose={() => setDeleteDialogOpen(false)}
       >
-        <DialogTitle>Delete {stationToDelete?.name}?</DialogTitle>
+        <DialogTitle>Delete {selectedStation?.name}?</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Are you sure? This will permanently remove the station and its task
-            details.
+            Are you sure? This will permanently remove the station.
           </DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
+          <Button
+            onClick={() => setDeleteDialogOpen(false)}
+            disabled={deleteLoading}
+          >
+            Cancel
+          </Button>
           <Button
             onClick={handleDeleteConfirm}
             color="error"

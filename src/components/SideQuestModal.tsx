@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import type { FC } from "react";
 import {
   Modal,
@@ -34,13 +34,29 @@ const style = {
   overflowY: "auto",
 };
 
+// Define the data shape here so we can use it in props
+export interface SideQuestData {
+  id?: string;
+  name: string;
+  description: string;
+  points: number;
+  submissionType: "photo" | "video" | "none";
+  isSmManaged: boolean;
+}
+
 interface Props {
   open: boolean;
   onClose: () => void;
-  onAdded: () => void;
+  onSuccess: () => void;
+  initialData?: SideQuestData | null; // <-- NEW: Optional data for editing
 }
 
-export const SideQuestModal: FC<Props> = ({ open, onClose, onAdded }) => {
+export const SideQuestModal: FC<Props> = ({
+  open,
+  onClose,
+  onSuccess,
+  initialData,
+}) => {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [points, setPoints] = useState(50);
@@ -51,29 +67,60 @@ export const SideQuestModal: FC<Props> = ({ open, onClose, onAdded }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const functions = getFunctions(undefined, "asia-southeast1");
-      const createFn = httpsCallable(functions, "createSideQuest");
-      await createFn({
-        name,
-        description,
-        points,
-        submissionType,
-        isSmManaged,
-      });
-      onAdded();
-      onClose();
-      // Reset form
+  // --- NEW: Populate form when opening in "Edit Mode" ---
+  useEffect(() => {
+    if (open && initialData) {
+      // Edit Mode: Fill the form
+      setName(initialData.name);
+      setDescription(initialData.description);
+      setPoints(initialData.points);
+      setSubmissionType(initialData.submissionType);
+      setIsSmManaged(initialData.isSmManaged);
+    } else if (open && !initialData) {
+      // Create Mode: Reset the form
       setName("");
       setDescription("");
       setPoints(50);
       setSubmissionType("none");
       setIsSmManaged(false);
+    }
+    setError(null);
+  }, [open, initialData]);
+
+  const handleSubmit = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const functions = getFunctions(undefined, "asia-southeast1");
+
+      // --- NEW: Decide whether to CREATE or UPDATE ---
+      if (initialData?.id) {
+        // Update existing
+        const updateFn = httpsCallable(functions, "updateSideQuest");
+        await updateFn({
+          id: initialData.id,
+          name,
+          description,
+          points,
+          submissionType,
+          isSmManaged,
+        });
+      } else {
+        // Create new
+        const createFn = httpsCallable(functions, "createSideQuest");
+        await createFn({
+          name,
+          description,
+          points,
+          submissionType,
+          isSmManaged,
+        });
+      }
+
+      onSuccess();
+      onClose();
     } catch (err: any) {
-      setError(err.message || "Error creating quest.");
+      setError(err.message || "Error saving quest.");
     } finally {
       setLoading(false);
     }
@@ -82,7 +129,10 @@ export const SideQuestModal: FC<Props> = ({ open, onClose, onAdded }) => {
   return (
     <Modal open={open} onClose={onClose}>
       <Box sx={style}>
-        <Typography variant="h6">Add Side Quest</Typography>
+        <Typography variant="h6">
+          {initialData ? "Edit Side Quest" : "Add Side Quest"}
+        </Typography>
+
         <TextField
           label="Name"
           fullWidth
@@ -106,8 +156,9 @@ export const SideQuestModal: FC<Props> = ({ open, onClose, onAdded }) => {
         />
 
         <FormControl fullWidth>
-          <InputLabel>Submission Type</InputLabel>
+          <InputLabel id="sub-type-label">Submission Type</InputLabel>
           <Select
+            labelId="sub-type-label"
             value={submissionType}
             label="Submission Type"
             onChange={(e) => setSubmissionType(e.target.value as any)}
@@ -125,7 +176,7 @@ export const SideQuestModal: FC<Props> = ({ open, onClose, onAdded }) => {
               onChange={(e) => setIsSmManaged(e.target.checked)}
             />
           }
-          label="Managed by Station Master? (e.g. '24 Game')"
+          label="Managed by Station Master?"
         />
 
         {error && <Alert severity="error">{error}</Alert>}
@@ -135,7 +186,13 @@ export const SideQuestModal: FC<Props> = ({ open, onClose, onAdded }) => {
           disabled={loading || !name}
           onClick={handleSubmit}
         >
-          {loading ? <CircularProgress size={24} /> : "Add Quest"}
+          {loading ? (
+            <CircularProgress size={24} />
+          ) : initialData ? (
+            "Update Quest"
+          ) : (
+            "Add Quest"
+          )}
         </Button>
       </Box>
     </Modal>

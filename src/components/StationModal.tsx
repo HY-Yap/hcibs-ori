@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import type { FC } from "react";
 import {
   Modal,
@@ -29,19 +29,31 @@ const style = {
   flexDirection: "column",
   gap: 2,
   maxHeight: "90vh",
-  overflowY: "auto", // In case description is long
+  overflowY: "auto",
 };
+
+// Needs to match the data we get from Firestore
+export interface StationData {
+  id?: string;
+  name: string;
+  type: "manned" | "unmanned";
+  location?: string;
+  description?: string;
+  status?: string; // Optional because we don't edit it here
+}
 
 interface StationModalProps {
   open: boolean;
   onClose: () => void;
-  onStationAdded: () => void;
+  onStationAdded: () => void; // Renamed conceptually to 'onSuccess' but keeping same name is fine
+  initialData?: StationData | null; // <-- NEW: For editing
 }
 
 export const StationModal: FC<StationModalProps> = ({
   open,
   onClose,
   onStationAdded,
+  initialData,
 }) => {
   const [name, setName] = useState("");
   const [type, setType] = useState<"manned" | "unmanned" | "">("");
@@ -50,26 +62,48 @@ export const StationModal: FC<StationModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleClose = () => {
-    onClose();
-    setName("");
-    setType("");
-    setLocation("");
-    setDescription("");
+  // --- POPULATE FORM ON OPEN ---
+  useEffect(() => {
+    if (open && initialData) {
+      setName(initialData.name);
+      setType(initialData.type);
+      setLocation(initialData.location || "");
+      setDescription(initialData.description || "");
+    } else if (open && !initialData) {
+      setName("");
+      setType("");
+      setLocation("");
+      setDescription("");
+    }
     setError(null);
-  };
+  }, [open, initialData]);
 
   const handleSubmit = async () => {
     setLoading(true);
     setError(null);
     try {
-      const functions = getFunctions(undefined, "asia-southeast1"); // Ensure correct region!
-      const createStationFn = httpsCallable(functions, "createStation");
-      await createStationFn({ name, type, location, description });
+      const functions = getFunctions(undefined, "asia-southeast1");
+
+      if (initialData?.id) {
+        // UPDATE existing
+        const updateFn = httpsCallable(functions, "updateStation");
+        await updateFn({
+          id: initialData.id,
+          name,
+          type,
+          location,
+          description,
+        });
+      } else {
+        // CREATE new
+        const createFn = httpsCallable(functions, "createStation");
+        await createFn({ name, type, location, description });
+      }
+
       onStationAdded();
-      handleClose();
+      onClose();
     } catch (err: any) {
-      console.error("Error creating station:", err);
+      console.error("Error saving station:", err);
       setError(err.message || "An unknown error occurred.");
     } finally {
       setLoading(false);
@@ -77,10 +111,10 @@ export const StationModal: FC<StationModalProps> = ({
   };
 
   return (
-    <Modal open={open} onClose={handleClose}>
+    <Modal open={open} onClose={onClose}>
       <Box sx={style}>
         <Typography variant="h6" component="h2">
-          Add New Station
+          {initialData ? "Edit Station" : "Add New Station"}
         </Typography>
         <TextField
           label="Station Name (e.g. Bishan)"
@@ -129,7 +163,13 @@ export const StationModal: FC<StationModalProps> = ({
           disabled={loading || !name || !type}
           onClick={handleSubmit}
         >
-          {loading ? <CircularProgress size={24} /> : "Add Station"}
+          {loading ? (
+            <CircularProgress size={24} />
+          ) : initialData ? (
+            "Update Station"
+          ) : (
+            "Add Station"
+          )}
         </Button>
       </Box>
     </Modal>

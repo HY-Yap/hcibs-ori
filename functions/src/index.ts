@@ -169,3 +169,56 @@ export const deleteSideQuest = onCall(
     throw new HttpsError("internal", error.message);
   }
 });
+
+// ===================================================================
+// 8. UPDATE SIDE QUEST (NEW!)
+// ===================================================================
+export const updateSideQuest = onCall(
+  async (request: CallableRequest<SideQuestData & { id: string }>) => {
+  
+  if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
+  const callerDoc = await admin.firestore().collection("users").doc(request.auth.uid).get();
+  if (callerDoc.data()?.role !== "ADMIN") throw new HttpsError("permission-denied", "Admin only.");
+
+  const { id, name, description, points, submissionType, isSmManaged } = request.data;
+  
+  if (!id || !name || points === undefined) {
+    throw new HttpsError("invalid-argument", "ID, Name, and Points are required.");
+  }
+
+  try {
+    await admin.firestore().collection("sideQuests").doc(id).update({
+      name, description, points, submissionType, isSmManaged
+    });
+    return { success: true, message: "Side quest updated." };
+  } catch (error: any) {
+    throw new HttpsError("internal", error.message);
+  }
+});
+
+// ===================================================================
+// 9. UPDATE STATION (NEW!)
+// ===================================================================
+export const updateStation = onCall(
+  async (request: CallableRequest<StationData & { id: string }>) => {
+    
+  if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
+  const callerDoc = await admin.firestore().collection("users").doc(request.auth.uid).get();
+  if (callerDoc.data()?.role !== "ADMIN") throw new HttpsError("permission-denied", "Admin only.");
+
+  const { id, name, type, description, location } = request.data;
+  
+  if (!id || !name || !type) {
+    throw new HttpsError("invalid-argument", "ID, Name, and Type are required.");
+  }
+
+  try {
+    // We only update the editable fields, NOT the status or counts
+    await admin.firestore().collection("stations").doc(id).update({
+      name, type, description: description || "", location: location || ""
+    });
+    return { success: true, message: `Updated station: ${name}` };
+  } catch (error: any) {
+    throw new HttpsError("internal", error.message);
+  }
+});
