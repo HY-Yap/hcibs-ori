@@ -1,4 +1,4 @@
-import React, { useState, Fragment } from "react";
+import React, { useState, Fragment, type MouseEvent } from "react";
 import {
   AppBar,
   Box,
@@ -11,113 +11,208 @@ import {
   ListItem,
   ListItemButton,
   ListItemText,
+  Menu,
+  MenuItem,
+  Collapse,
+  Divider,
 } from "@mui/material";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import MenuIcon from "@mui/icons-material/Menu";
+import ExpandLess from "@mui/icons-material/ExpandLess";
+import ExpandMore from "@mui/icons-material/ExpandMore";
 import { LoginModal } from "./LoginModal";
-import { useAuth } from "../context/AuthContext"; // <-- 1. We need this
+import { useAuth } from "../context/AuthContext";
 import { signOut } from "firebase/auth";
 import { auth } from "../firebase";
 
-// --- 2. DEFINE ALL OUR LINKS ---
+// --- DEFINE MENU STRUCTURE ---
+// 'type': 'link' is a direct button. 'menu' is a dropdown.
+type MenuItemType =
+  | { type: "link"; name: string; path: string }
+  | {
+      type: "menu";
+      name: string;
+      items: { name: string; path: string; isDivider?: boolean }[];
+    };
 
-// Links for Guests (not logged in)
-const guestNavLinks = [
-  { name: "Home", path: "/" },
-  { name: "Leaderboard", path: "/leaderboard" },
-  { name: "Stations", path: "/stations" },
-  { name: "Side Quests", path: "/sidequests" },
-];
-
-// Links for a logged-in Admin
-const adminNavLinks = [
-  { name: "Admin Dashboard", path: "/admin" },
-  { name: "Manage Users", path: "/admin/users" },
-  { name: "Manage Stations", path: "/admin/stations" },
-  { name: "Manage Side Quests", path: "/admin/sidequests" },
-  // We'll add 'Game Control', 'Score Log', etc. here later
-];
-
-// We'll add OGL and SM links later
-// const oglNavLinks = [ ... ];
-// const smNavLinks = [ ... ];
-
-export const Header: React.FC = () => {
+const Header: React.FC = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [isLoginOpen, setLoginOpen] = useState(false);
+  const { currentUser, profile } = useAuth();
+  const navigate = useNavigate();
 
-  const { currentUser, profile } = useAuth(); // <-- 3. Get the user and their role
+  // State for Desktop Dropdowns (anchor elements)
+  const [menuAnchors, setMenuAnchors] = useState<{
+    [key: string]: null | HTMLElement;
+  }>({});
+  // State for Mobile Collapsible Menus (booleans)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState<{
+    [key: string]: boolean;
+  }>({});
 
-  const handleDrawerToggle = () => {
-    setMobileOpen(!mobileOpen);
-  };
-
-  // --- 4. CHOOSE THE RIGHT LINKS ---
-  let navLinks = guestNavLinks; // Start with guest links
-
-  if (profile?.role === "ADMIN") {
-    // Add the admin links AFTER the guest links
-    navLinks = [...guestNavLinks, ...adminNavLinks];
-  }
-  // else if (profile?.role === 'OGL') {
-  //   navLinks = [...guestNavLinks, ...oglNavLinks];
-  // }
-  // else if (profile?.role === 'SM') {
-  //   navLinks = [...guestNavLinks, ...smNavLinks];
-  // }
-
-  const handleLoginOpen = () => {
-    setLoginOpen(true);
-  };
-
-  const handleLoginClose = () => {
-    setLoginOpen(false);
-  };
+  const handleLoginOpen = () => setLoginOpen(true);
+  const handleLoginClose = () => setLoginOpen(false);
+  const handleDrawerToggle = () => setMobileOpen(!mobileOpen);
 
   const handleLogout = async () => {
     try {
       await signOut(auth);
+      navigate("/");
     } catch (err) {
       console.error("Failed to log out", err);
     }
   };
 
-  // This is the content of the mobile "drawer" (hamburger menu)
+  // --- DESKTOP MENU HANDLERS ---
+  const handleDesktopMenuOpen = (
+    event: MouseEvent<HTMLElement>,
+    menuName: string
+  ) => {
+    setMenuAnchors({ ...menuAnchors, [menuName]: event.currentTarget });
+  };
+  const handleDesktopMenuClose = (menuName: string) => {
+    setMenuAnchors({ ...menuAnchors, [menuName]: null });
+  };
+
+  // --- MOBILE MENU HANDLERS ---
+  const handleMobileMenuToggle = (menuName: string) => {
+    setMobileMenuOpen({
+      ...mobileMenuOpen,
+      [menuName]: !mobileMenuOpen[menuName],
+    });
+  };
+
+  // =========================================
+  // DEFINE NAVIGATION BASED ON ROLE
+  // =========================================
+  const universalLinks: MenuItemType[] = [
+    { type: "link", name: "Home", path: "/" },
+    {
+      type: "menu",
+      name: "Game Info",
+      items: [
+        { name: "Station List", path: "/stations" },
+        { name: "Side Quest List", path: "/sidequests" },
+      ],
+    },
+    { type: "link", name: "Leaderboard", path: "/leaderboard" },
+  ];
+
+  let roleLinks: MenuItemType[] = [];
+  if (profile?.role === "ADMIN") {
+    roleLinks = [
+      { type: "link", name: "Dashboard", path: "/admin" },
+      {
+        type: "menu",
+        name: "Admin Tools",
+        items: [
+          { name: "Manage Users", path: "/admin/users" },
+          { name: "Manage Stations", path: "/admin/stations" },
+          { name: "Manage Side Quests", path: "/admin/sidequests" },
+          { name: "DIVIDER", path: "", isDivider: true },
+          { name: "Game Controls (Coming Soon)", path: "#" },
+        ],
+      },
+    ];
+  } else if (profile?.role === "SM") {
+    roleLinks = [{ type: "link", name: "My Station", path: "/sm" }];
+  } else if (profile?.role === "OGL") {
+    roleLinks = [
+      { type: "link", name: "My Dashboard", path: "/ogl" },
+      { type: "link", name: "My Journey", path: "/ogl/journey" }, // We need to create this page!
+      { type: "link", name: "Side Quests", path: "/ogl/sidequests" }, // And this one!
+    ];
+  }
+
+  const allLinks = [...universalLinks, ...roleLinks];
+
+  // =========================================
+  // RENDER MOBILE DRAWER
+  // =========================================
   const drawer = (
-    <Box onClick={handleDrawerToggle} sx={{ textAlign: "center" }}>
-      <Typography variant="h6" sx={{ my: 2 }}>
+    <Box sx={{ textAlign: "center" }}>
+      <Typography variant="h6" sx={{ my: 2 }} onClick={handleDrawerToggle}>
         HCIBSO Amazing Race
       </Typography>
+      <Divider />
       <List>
-        {/* 5. Use the DYNAMIC navLinks here */}
-        {navLinks.map((item) => (
-          <ListItem key={item.name} disablePadding>
-            <ListItemButton
-              component={Link}
-              to={item.path}
-              sx={{ textAlign: "center" }}
-            >
-              <ListItemText primary={item.name} />
-            </ListItemButton>
-          </ListItem>
-        ))}
-        {/* Show Login or Logout */}
+        {allLinks.map((item) => {
+          if (item.type === "link") {
+            return (
+              <ListItem key={item.name} disablePadding>
+                <ListItemButton
+                  component={Link}
+                  to={item.path}
+                  onClick={handleDrawerToggle}
+                  sx={{ textAlign: "center" }}
+                >
+                  <ListItemText primary={item.name} />
+                </ListItemButton>
+              </ListItem>
+            );
+          } else {
+            // It's a collapsible menu
+            const isOpen = mobileMenuOpen[item.name] || false;
+            return (
+              <Fragment key={item.name}>
+                <ListItemButton
+                  onClick={() => handleMobileMenuToggle(item.name)}
+                  sx={{ textAlign: "center", justifyContent: "center" }}
+                >
+                  <ListItemText primary={item.name} />
+                  {isOpen ? <ExpandLess /> : <ExpandMore />}
+                </ListItemButton>
+                <Collapse in={isOpen} timeout="auto" unmountOnExit>
+                  <List
+                    component="div"
+                    disablePadding
+                    sx={{ backgroundColor: "rgba(0,0,0,0.04)" }}
+                  >
+                    {item.items.map((subItem, index) =>
+                      subItem.isDivider ? (
+                        <Divider key={index} />
+                      ) : (
+                        <ListItemButton
+                          key={subItem.name}
+                          component={Link}
+                          to={subItem.path}
+                          onClick={handleDrawerToggle}
+                          sx={{ pl: 4, textAlign: "center" }}
+                        >
+                          <ListItemText primary={subItem.name} />
+                        </ListItemButton>
+                      )
+                    )}
+                  </List>
+                </Collapse>
+              </Fragment>
+            );
+          }
+        })}
+        <Divider sx={{ my: 2 }} />
+        {/* Login/Logout Button at bottom of drawer */}
         <ListItem disablePadding>
           {currentUser ? (
             <ListItemButton
-              onClick={handleLogout}
-              sx={{ textAlign: "center", justifyContent: "center" }}
+              onClick={() => {
+                handleLogout();
+                handleDrawerToggle();
+              }}
+              sx={{ justifyContent: "center" }}
             >
-              <Button variant="contained" color="secondary">
+              <Button variant="contained" color="secondary" fullWidth>
                 Logout
               </Button>
             </ListItemButton>
           ) : (
             <ListItemButton
-              onClick={handleLoginOpen}
-              sx={{ textAlign: "center", justifyContent: "center" }}
+              onClick={() => {
+                handleLoginOpen();
+                handleDrawerToggle();
+              }}
+              sx={{ justifyContent: "center" }}
             >
-              <Button variant="contained" color="primary">
+              <Button variant="contained" color="primary" fullWidth>
                 Login
               </Button>
             </ListItemButton>
@@ -129,49 +224,94 @@ export const Header: React.FC = () => {
 
   return (
     <Fragment>
-      {" "}
-      {/* Changed from <> to Fragment for clarity */}
-      <Box sx={{ display: "flex" }}>
-        <AppBar component="nav" position="static">
-          <Toolbar>
-            <IconButton
-              color="inherit"
-              aria-label="open drawer"
-              edge="start"
-              onClick={handleDrawerToggle}
-              sx={{ mr: 2, display: { sm: "none" } }}
-            >
-              <MenuIcon />
-            </IconButton>
+      <AppBar component="nav" position="sticky">
+        <Toolbar>
+          <IconButton
+            color="inherit"
+            aria-label="open drawer"
+            edge="start"
+            onClick={handleDrawerToggle}
+            sx={{ mr: 2, display: { md: "none" } }} // Show on small screens
+          >
+            <MenuIcon />
+          </IconButton>
 
-            <Typography
-              variant="h6"
-              component="div"
-              sx={{ flexGrow: 1, display: { xs: "none", sm: "block" } }}
-            >
-              HCIBSO Amazing Race
-            </Typography>
+          <Typography
+            variant="h6"
+            component={Link}
+            to="/"
+            sx={{
+              flexGrow: 1,
+              display: { xs: "block", sm: "block" },
+              textDecoration: "none",
+              color: "inherit",
+            }}
+          >
+            HCIBSO Amazing Race
+          </Typography>
 
-            {/* 6. Use the DYNAMIC navLinks here */}
-            <Box sx={{ display: { xs: "none", sm: "block" } }}>
-              {navLinks.map((item) => (
-                <Button
-                  key={item.name}
-                  component={Link}
-                  to={item.path}
-                  sx={{ color: "#fff" }}
-                >
-                  {item.name}
-                </Button>
-              ))}
-            </Box>
+          {/* DESKTOP NAV LINKS */}
+          <Box
+            sx={{
+              display: { xs: "none", md: "flex" },
+              gap: 1,
+              alignItems: "center",
+            }}
+          >
+            {allLinks.map((item) => {
+              if (item.type === "link") {
+                return (
+                  <Button
+                    key={item.name}
+                    component={Link}
+                    to={item.path}
+                    sx={{ color: "#fff" }}
+                  >
+                    {item.name}
+                  </Button>
+                );
+              } else {
+                // It's a dropdown menu
+                return (
+                  <Fragment key={item.name}>
+                    <Button
+                      color="inherit"
+                      endIcon={<ExpandMore />}
+                      onClick={(e) => handleDesktopMenuOpen(e, item.name)}
+                    >
+                      {item.name}
+                    </Button>
+                    <Menu
+                      anchorEl={menuAnchors[item.name]}
+                      open={Boolean(menuAnchors[item.name])}
+                      onClose={() => handleDesktopMenuClose(item.name)}
+                    >
+                      {item.items.map((subItem, index) =>
+                        subItem.isDivider ? (
+                          <Divider key={index} />
+                        ) : (
+                          <MenuItem
+                            key={subItem.name}
+                            component={Link}
+                            to={subItem.path}
+                            onClick={() => handleDesktopMenuClose(item.name)}
+                          >
+                            {subItem.name}
+                          </MenuItem>
+                        )
+                      )}
+                    </Menu>
+                  </Fragment>
+                );
+              }
+            })}
 
-            {/* Show Login or Logout */}
+            {/* Desktop Login/Logout */}
             {currentUser ? (
               <Button
                 color="inherit"
                 onClick={handleLogout}
-                sx={{ ml: 2, display: { xs: "none", sm: "block" } }}
+                sx={{ ml: 2, border: "1px solid rgba(255,255,255,0.5)" }}
               >
                 Logout
               </Button>
@@ -179,29 +319,34 @@ export const Header: React.FC = () => {
               <Button
                 color="inherit"
                 onClick={handleLoginOpen}
-                sx={{ ml: 2, display: { xs: "none", sm: "block" } }}
+                sx={{ ml: 2, border: "1px solid white" }}
               >
                 Login
               </Button>
             )}
-          </Toolbar>
-        </AppBar>
-        <Drawer
-          variant="temporary"
-          open={mobileOpen}
-          onClose={handleDrawerToggle}
-          ModalProps={{ keepMounted: true }}
-          sx={{
-            display: { xs: "block", sm: "none" },
-            "& .MuiDrawer-paper": { boxSizing: "border-box", width: 240 },
-          }}
-        >
-          {drawer}
-        </Drawer>
-      </Box>
+          </Box>
+        </Toolbar>
+      </AppBar>
+
+      {/* Mobile Drawer */}
+      <Drawer
+        variant="temporary"
+        open={mobileOpen}
+        onClose={handleDrawerToggle}
+        ModalProps={{ keepMounted: true }}
+        sx={{
+          display: { xs: "block", md: "none" },
+          "& .MuiDrawer-paper": { boxSizing: "border-box", width: 250 },
+        }}
+      >
+        {drawer}
+      </Drawer>
+
       {!currentUser && (
         <LoginModal open={isLoginOpen} onClose={handleLoginClose} />
       )}
     </Fragment>
   );
 };
+
+export { Header };
