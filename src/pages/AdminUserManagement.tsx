@@ -25,7 +25,8 @@ import {
   FormControl,
   InputLabel,
   Select,
-  TableSortLabel, // <-- NEW IMPORT
+  TableSortLabel,
+  Divider, // <-- NEW IMPORT
 } from "@mui/material";
 import { collection, getDocs } from "firebase/firestore";
 import { getFunctions, httpsCallable } from "firebase/functions";
@@ -33,6 +34,7 @@ import { db } from "../firebase";
 import { AddUserModal } from "../components/AddUserModal";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import DeleteIcon from "@mui/icons-material/Delete";
+import WarningIcon from "@mui/icons-material/Warning"; // <-- NEW IMPORT
 
 // Define the shape of our user data
 interface UserData {
@@ -43,7 +45,6 @@ interface UserData {
 }
 
 type UserRole = "ADMIN" | "SM" | "OGL" | "ALL";
-// --- NEW! Define sortable columns for type safety ---
 type SortableColumn = "displayName" | "role" | "email";
 type Order = "asc" | "desc";
 
@@ -53,25 +54,31 @@ export const AdminUserManagement: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [isModalOpen, setModalOpen] = useState(false);
 
-  // Delete state
+  // Delete ONE user state
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [selectedUser, setSelectedUser] = useState<UserData | null>(null);
   const [isDeleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  // Filter/Search state
+  // Filter/Search/Sort state
   const [filterRole, setFilterRole] = useState<UserRole>("ALL");
   const [searchTerm, setSearchTerm] = useState("");
-
-  // --- NEW! Sorting State ---
   const [orderBy, setOrderBy] = useState<SortableColumn>("displayName");
   const [order, setOrder] = useState<Order>("asc");
+
+  // --- NEW! DANGER ZONE STATE ---
+  const [isDeleteAllOpen, setDeleteAllOpen] = useState(false);
+  const [deleteAllConfirmation, setDeleteAllConfirmation] = useState("");
+  const [deleteAllLoading, setDeleteAllLoading] = useState(false);
+  const [deleteAllError, setDeleteAllError] = useState<string | null>(null);
+  const [deleteAllSuccess, setDeleteAllSuccess] = useState<string | null>(null);
 
   const fetchUsers = async () => {
     setLoading(true);
     setError(null);
     setDeleteError(null);
+    // Don't clear deleteAllSuccess here so they can see the message
     try {
       const usersCollectionRef = collection(db, "users");
       const querySnapshot = await getDocs(usersCollectionRef);
@@ -92,14 +99,12 @@ export const AdminUserManagement: React.FC = () => {
     fetchUsers();
   }, []);
 
-  // --- NEW! Handle sort clicks ---
   const handleRequestSort = (property: SortableColumn) => {
     const isAsc = orderBy === property && order === "asc";
     setOrder(isAsc ? "desc" : "asc");
     setOrderBy(property);
   };
 
-  // --- UPDATED! Memoized, Filtered, and SORTED List ---
   const filteredAndSortedUsers = useMemo(() => {
     return users
       .filter((user) => {
@@ -114,21 +119,14 @@ export const AdminUserManagement: React.FC = () => {
         return true;
       })
       .sort((a, b) => {
-        // Dynamic sorting logic
         const valueA = (a[orderBy] || "").toLowerCase();
         const valueB = (b[orderBy] || "").toLowerCase();
-
-        if (valueB < valueA) {
-          return order === "asc" ? 1 : -1;
-        }
-        if (valueB > valueA) {
-          return order === "asc" ? -1 : 1;
-        }
+        if (valueB < valueA) return order === "asc" ? 1 : -1;
+        if (valueB > valueA) return order === "asc" ? -1 : 1;
         return 0;
       });
-  }, [users, filterRole, searchTerm, orderBy, order]); // Re-run when sort state changes
+  }, [users, filterRole, searchTerm, orderBy, order]);
 
-  // ... (Existing handlers for UserAdded, Menu, Delete remain the same)
   const handleUserAdded = () => {
     setModalOpen(false);
     fetchUsers();
@@ -153,6 +151,7 @@ export const AdminUserManagement: React.FC = () => {
     setDeleteError(null);
     setSelectedUser(null);
   };
+
   const handleDeleteUser = async () => {
     if (!selectedUser) return;
     setDeleteLoading(true);
@@ -171,6 +170,38 @@ export const AdminUserManagement: React.FC = () => {
     }
   };
 
+  // --- NEW! DANGER ZONE HANDLERS ---
+  const openDeleteAll = () => {
+    setDeleteAllOpen(true);
+    setDeleteAllConfirmation("");
+    setDeleteAllError(null);
+    setDeleteAllSuccess(null);
+  };
+  const closeDeleteAll = () => {
+    setDeleteAllOpen(false);
+  };
+  const handleDeleteAllUsers = async () => {
+    if (deleteAllConfirmation !== "DELETE") return;
+    setDeleteAllLoading(true);
+    setDeleteAllError(null);
+    try {
+      const functions = getFunctions();
+      const deleteAllUsersFn = httpsCallable(functions, "deleteAllUsers");
+      const result = await deleteAllUsersFn();
+      const data = result.data as any;
+
+      // Success!
+      setDeleteAllSuccess(data.message);
+      closeDeleteAll();
+      fetchUsers();
+    } catch (err: any) {
+      console.error("Error deleting all users:", err);
+      setDeleteAllError(err.message || "Failed to delete all users.");
+    } finally {
+      setDeleteAllLoading(false);
+    }
+  };
+
   if (loading && users.length === 0) {
     return (
       <Box sx={{ display: "flex", justifyContent: "center", mt: 4 }}>
@@ -180,7 +211,9 @@ export const AdminUserManagement: React.FC = () => {
   }
 
   return (
-    <Box>
+    <Box sx={{ pb: 8 }}>
+      {" "}
+      {/* Added padding bottom for scrolling past danger zone */}
       <Box
         sx={{
           display: "flex",
@@ -200,7 +233,15 @@ export const AdminUserManagement: React.FC = () => {
           + Add New User
         </Button>
       </Box>
-
+      {deleteAllSuccess && (
+        <Alert
+          severity="success"
+          sx={{ mb: 2 }}
+          onClose={() => setDeleteAllSuccess(null)}
+        >
+          {deleteAllSuccess}
+        </Alert>
+      )}
       <Paper sx={{ p: 2, mb: 2 }}>
         <Box
           sx={{
@@ -236,18 +277,15 @@ export const AdminUserManagement: React.FC = () => {
           </Box>
         </Box>
       </Paper>
-
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {error}
         </Alert>
       )}
-
       <TableContainer component={Paper}>
         <Table sx={{ minWidth: 650 }} aria-label="simple user table">
           <TableHead>
             <TableRow sx={{ backgroundColor: "#f4f4f4" }}>
-              {/* --- UPDATED HEADERS WITH SORT LABELS --- */}
               <TableCell>
                 <TableSortLabel
                   active={orderBy === "displayName"}
@@ -323,7 +361,38 @@ export const AdminUserManagement: React.FC = () => {
           </TableBody>
         </Table>
       </TableContainer>
-
+      {/* --- NEW! DANGER ZONE SECTION --- */}
+      <Box
+        sx={{
+          mt: 8,
+          p: 3,
+          border: "1px solid #d32f2f",
+          borderRadius: 1,
+          backgroundColor: "#fff5f5",
+        }}
+      >
+        <Typography
+          variant="h5"
+          color="error"
+          gutterBottom
+          sx={{ display: "flex", alignItems: "center", gap: 1 }}
+        >
+          <WarningIcon /> Danger Zone
+        </Typography>
+        <Typography paragraph>
+          These actions are destructive and cannot be undone. Use with extreme
+          caution.
+        </Typography>
+        <Button variant="outlined" color="error" onClick={openDeleteAll}>
+          Delete ALL Users
+        </Button>
+        {deleteAllError && (
+          <Alert severity="error" sx={{ mt: 2 }}>
+            {deleteAllError}
+          </Alert>
+        )}
+      </Box>
+      {/* Menu & Single Delete Dialog (Same as before) */}
       <Menu
         anchorEl={anchorEl}
         open={Boolean(anchorEl)}
@@ -336,7 +405,6 @@ export const AdminUserManagement: React.FC = () => {
           <Typography color="error">Delete User</Typography>
         </MenuItem>
       </Menu>
-
       <Dialog
         open={isDeleteConfirmOpen}
         onClose={closeDeleteConfirm}
@@ -369,7 +437,62 @@ export const AdminUserManagement: React.FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
-
+      {/* --- NEW! DELETE ALL CONFIRMATION DIALOG --- */}
+      <Dialog
+        open={isDeleteAllOpen}
+        onClose={closeDeleteAll}
+        fullWidth
+        maxWidth="xs"
+      >
+        <DialogTitle
+          sx={{
+            color: "error.main",
+            display: "flex",
+            alignItems: "center",
+            gap: 1,
+          }}
+        >
+          <WarningIcon /> DELETE ALL USERS?
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText sx={{ mb: 2, fontWeight: "bold" }}>
+            WARNING: This will delete EVERY user account (OGLs, SMs) except for
+            your own Admin account. This action is IRREVERSIBLE.
+          </DialogContentText>
+          <DialogContentText sx={{ mb: 2 }}>
+            To confirm, please type <strong>DELETE</strong> in the box below.
+          </DialogContentText>
+          <TextField
+            autoFocus
+            fullWidth
+            variant="outlined"
+            placeholder="Type DELETE to confirm"
+            value={deleteAllConfirmation}
+            onChange={(e) => setDeleteAllConfirmation(e.target.value)}
+            error={
+              deleteAllConfirmation.length > 0 &&
+              deleteAllConfirmation !== "DELETE"
+            }
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeDeleteAll} disabled={deleteAllLoading}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleDeleteAllUsers}
+            color="error"
+            variant="contained"
+            disabled={deleteAllLoading || deleteAllConfirmation !== "DELETE"}
+          >
+            {deleteAllLoading ? (
+              <CircularProgress size={24} />
+            ) : (
+              "I UNDERSTAND, DELETE ALL"
+            )}
+          </Button>
+        </DialogActions>
+      </Dialog>
       <AddUserModal
         open={isModalOpen}
         onClose={() => setModalOpen(false)}

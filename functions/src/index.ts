@@ -11,148 +11,110 @@ interface CreateUserData {
   displayName: string;
   role: 'ADMIN' | 'SM' | 'OGL';
 }
-// --- NEW! ---
 interface DeleteUserData {
   uid: string; // The ID of the user to delete
 }
 
 // ===================================================================
-// CREATE USER FUNCTION (Already built)
+// 1. CREATE USER FUNCTION
 // ===================================================================
 export const createUser = functions.https.onCall(
   async (request: functions.https.CallableRequest<CreateUserData>) => {
 
-  // 1. CHECK AUTHENTICATION & AUTHORIZATION
   if (!request.auth) {
-    throw new functions.https.HttpsError(
-      "unauthenticated",
-      "You must be logged in to create a user."
-    );
+    throw new functions.https.HttpsError("unauthenticated", "You must be logged in.");
   }
 
   const callerUid = request.auth.uid;
-  const callerDoc = await admin
-    .firestore()
-    .collection("users")
-    .doc(callerUid)
-    .get();
-  
-  const callerRole = callerDoc.data()?.role;
-
-  if (callerRole !== "ADMIN") {
-    throw new functions.https.HttpsError(
-      "permission-denied",
-      "Only an Admin can create new users."
-    );
+  const callerDoc = await admin.firestore().collection("users").doc(callerUid).get();
+  if (callerDoc.data()?.role !== "ADMIN") {
+    throw new functions.https.HttpsError("permission-denied", "Only Admin can create users.");
   }
 
-  // 2. GET DATA FROM THE FRONT-END
   const { username, password, displayName, role } = request.data;
   const email = `${username}@hcibso.app`;
 
   if (!email || !password || !displayName || !role) {
-    throw new functions.https.HttpsError(
-      "invalid-argument",
-      "Missing required user data."
-    );
+    throw new functions.https.HttpsError("invalid-argument", "Missing data.");
   }
 
   try {
-    // 3. CREATE THE USER IN FIREBASE AUTHENTICATION
     const userRecord = await admin.auth().createUser({
-      email: email,
-      password: password,
-      displayName: displayName,
+      email,
+      password,
+      displayName,
     });
-
-    const newUserId = userRecord.uid;
-
-    // 4. CREATE THE USER'S PROFILE IN FIRESTORE
-    await admin.firestore().collection("users").doc(newUserId).set({
-      displayName: displayName,
-      role: role,
-      username: username,
-      email: email,
+    await admin.firestore().collection("users").doc(userRecord.uid).set({
+      displayName,
+      role,
+      username,
+      email,
     });
-
-    // 5. RETURN SUCCESS
-    return {
-      success: true,
-      message: `Successfully created user ${displayName} (${email})`,
-      uid: newUserId,
-    };
+    return { success: true, message: `Created ${displayName}` };
   } catch (error: any) {
-    console.error("Error creating user:", error);
-    throw new functions.https.HttpsError(
-      "internal",
-      error.message || "An unknown error occurred."
-    );
+    throw new functions.https.HttpsError("internal", error.message);
   }
 });
 
-
 // ===================================================================
-// NEW! DELETE USER FUNCTION
+// 2. DELETE USER FUNCTION
 // ===================================================================
 export const deleteUser = functions.https.onCall(
   async (request: functions.https.CallableRequest<DeleteUserData>) => {
 
-  // 1. CHECK AUTHENTICATION & AUTHORIZATION (Same as before)
   if (!request.auth) {
-    throw new functions.https.HttpsError(
-      "unauthenticated",
-      "You must be logged in to delete a user."
-    );
+    throw new functions.https.HttpsError("unauthenticated", "You must be logged in.");
   }
 
   const callerUid = request.auth.uid;
-  const callerDoc = await admin
-    .firestore()
-    .collection("users")
-    .doc(callerUid)
-    .get();
-  
+  const callerDoc = await admin.firestore().collection("users").doc(callerUid).get();
   if (callerDoc.data()?.role !== "ADMIN") {
-    throw new functions.https.HttpsError(
-      "permission-denied",
-      "Only an Admin can delete users."
-    );
+    throw new functions.https.HttpsError("permission-denied", "Only Admin can delete users.");
   }
 
-  // 2. GET DATA
   const uidToDelete = request.data.uid;
-  if (!uidToDelete) {
-    throw new functions.https.HttpsError(
-      "invalid-argument",
-      "Missing user ID."
-    );
-  }
-  
-  // You can't delete yourself
   if (callerUid === uidToDelete) {
-     throw new functions.https.HttpsError(
-      "invalid-argument",
-      "You cannot delete your own account."
-    );
+     throw new functions.https.HttpsError("invalid-argument", "Cannot delete yourself.");
   }
 
   try {
-    // 3. DELETE USER FROM FIREBASE AUTHENTICATION
     await admin.auth().deleteUser(uidToDelete);
-    
-    // 4. DELETE USER FROM FIRESTORE
     await admin.firestore().collection("users").doc(uidToDelete).delete();
-
-    // 5. RETURN SUCCESS
-    return {
-      success: true,
-      message: `Successfully deleted user ${uidToDelete}`,
-    };
+    return { success: true, message: `Deleted user ${uidToDelete}` };
   } catch (error: any) {
-    console.error("Error deleting user:", error);
-    throw new functions.https.HttpsError(
-      "internal",
-      error.message || "An unknown error occurred."
-    );
+    throw new functions.https.HttpsError("internal", error.message);
+  }
+});
+
+// ===================================================================
+// 3. DELETE ALL USERS FUNCTION (DANGER ZONE)
+// ===================================================================
+export const deleteAllUsers = functions.https.onCall(async (request) => {
+  if (!request.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "You must be logged in.");
+  }
+  const callerUid = request.auth.uid;
+  const callerDoc = await admin.firestore().collection("users").doc(callerUid).get();
+  if (callerDoc.data()?.role !== "ADMIN") {
+    throw new functions.https.HttpsError("permission-denied", "Only Admin can perform this.");
+  }
+
+  try {
+    const usersSnapshot = await admin.firestore().collection("users").get();
+    const deletePromises: Promise<any>[] = [];
+    let deletedCount = 0;
+
+    for (const doc of usersSnapshot.docs) {
+      const uid = doc.id;
+      if (uid === callerUid) continue; // Skip self
+
+      deletePromises.push(admin.auth().deleteUser(uid).catch((e) => console.log(`Failed auth delete for ${uid}`, e)));
+      deletePromises.push(doc.ref.delete());
+      deletedCount++;
+    }
+    await Promise.all(deletePromises);
+    return { success: true, message: `Successfully deleted ${deletedCount} users.` };
+  } catch (error: any) {
+    throw new functions.https.HttpsError("internal", error.message);
   }
 });
