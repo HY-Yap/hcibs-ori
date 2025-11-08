@@ -13,6 +13,7 @@ import {
   CircularProgress,
   Alert,
 } from "@mui/material";
+import { getFunctions, httpsCallable } from "firebase/functions"; // <-- 1. IMPORT FUNCTIONS
 
 // This is the style for the pop-up box
 const style = {
@@ -46,7 +47,7 @@ export const AddUserModal: FC<AddUserModalProps> = ({
   const [username, setUsername] = useState(""); // e.g., "SM-01" or "Group-01"
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState(""); // e.g., "SM 1" or "Group 1"
-  const [role, setRole] = useState<"SM" | "OGL" | "ADMIN" | "">(""); // <-- UPDATED
+  const [role, setRole] = useState<"SM" | "OGL" | "ADMIN" | "">("");
 
   // Logic state
   const [loading, setLoading] = useState(false);
@@ -62,20 +63,40 @@ export const AddUserModal: FC<AddUserModalProps> = ({
     setError(null);
   };
 
+  // --- 2. THIS IS THE NEW, REAL SUBMIT FUNCTION ---
   const handleSubmit = async () => {
-    // This is where we will call our Cloud Function
-    // For now, let's just log the data.
-    console.log({
-      username,
-      password,
-      displayName,
-      role,
-    });
+    setLoading(true);
+    setError(null);
 
-    // We will add the real logic in the next step
-    // For now, just show a placeholder error
-    setError("Creating users is not implemented yet.");
-    setLoading(false);
+    try {
+      // 1. Get a reference to our deployed 'createUser' function
+      const functions = getFunctions();
+      const createUserFn = httpsCallable(functions, "createUser");
+
+      // 2. Prepare the data to send to the function
+      const data = {
+        username,
+        password,
+        displayName,
+        role,
+      };
+
+      // 3. Call the function and wait for the result
+      const result = await createUserFn(data);
+
+      // 4. If successful, tell the parent page to refresh
+      console.log("Function result:", result.data);
+      onUserAdded(); // This will close the modal and refresh the list!
+    } catch (err: any) {
+      // 5. If it fails, show the error message
+      console.error("Error calling createUser function:", err);
+      // 'err.message' will be the nice, human-readable error
+      // we wrote in the Cloud Function (e.g., "Only an Admin can create users.")
+      setError(err.message || "An unknown error occurred.");
+    } finally {
+      // 6. Stop the spinner
+      setLoading(false);
+    }
   };
 
   return (
@@ -115,12 +136,12 @@ export const AddUserModal: FC<AddUserModalProps> = ({
             label="Role"
             onChange={(e) =>
               setRole(e.target.value as "SM" | "OGL" | "ADMIN" | "")
-            } // <-- UPDATED
+            }
           >
             <MenuItem value="">
               <em>Select a role...</em>
             </MenuItem>
-            <MenuItem value="ADMIN">Admin</MenuItem> {/* <-- ADDED */}
+            <MenuItem value="ADMIN">Admin</MenuItem>
             <MenuItem value="SM">Station Master (SM)</MenuItem>
             <MenuItem value="OGL">Orientation Group Leader (OGL)</MenuItem>
           </Select>
