@@ -1,18 +1,22 @@
-import { onCall, HttpsError, CallableRequest } from "firebase-functions/v2/https";
+import {
+  onCall,
+  HttpsError,
+  CallableRequest,
+} from "firebase-functions/v2/https";
 import { setGlobalOptions } from "firebase-functions/v2";
 import * as admin from "firebase-admin";
 
 admin.initializeApp();
 
 // --- CONFIGURE REGION ONCE FOR ALL FUNCTIONS ---
-setGlobalOptions({ region: 'asia-southeast1' });
+setGlobalOptions({ region: "asia-southeast1" });
 
 // --- INTERFACES ---
 interface CreateUserData {
   username: string;
   password: string;
   displayName: string;
-  role: 'ADMIN' | 'SM' | 'OGL';
+  role: "ADMIN" | "SM" | "OGL";
 }
 interface DeleteUserData {
   uid: string;
@@ -20,7 +24,7 @@ interface DeleteUserData {
 interface StationData {
   id?: string;
   name: string;
-  type: 'manned' | 'unmanned';
+  type: "manned" | "unmanned";
   description: string;
   location: string;
 }
@@ -30,8 +34,18 @@ interface SideQuestData {
   name: string;
   description: string;
   points: number;
-  submissionType: 'photo' | 'video' | 'none';
+  submissionType: "photo" | "video" | "none";
   isSmManaged: boolean;
+}
+
+// --- NEW INTERFACE FOR SCORE SUBMISSION ---
+interface ScoreData {
+  groupId: string;
+  stationId: string; // The SM's current station
+  stationPoints?: number; // Optional: The main task points
+  adminNote?: string; // Optional: Note for the main task
+  sideQuestId?: string; // Optional: ID of a side quest to award
+  sideQuestPoints?: number; // Optional: Points for that side quest
 }
 
 // ===================================================================
@@ -39,49 +53,79 @@ interface SideQuestData {
 // ===================================================================
 export const createUser = onCall(
   async (request: CallableRequest<CreateUserData>) => {
-  if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
-  const callerDoc = await admin.firestore().collection("users").doc(request.auth.uid).get();
-  if (callerDoc.data()?.role !== "ADMIN") throw new HttpsError("permission-denied", "Admin only.");
+    if (!request.auth)
+      throw new HttpsError("unauthenticated", "Must be logged in.");
+    const callerDoc = await admin
+      .firestore()
+      .collection("users")
+      .doc(request.auth.uid)
+      .get();
+    if (callerDoc.data()?.role !== "ADMIN")
+      throw new HttpsError("permission-denied", "Admin only.");
 
-  const { username, password, displayName, role } = request.data;
-  const email = `${username}@hcibso.app`;
+    const { username, password, displayName, role } = request.data;
+    const email = `${username}@hcibso.app`;
 
-  try {
-    const userRecord = await admin.auth().createUser({ email, password, displayName });
-    await admin.firestore().collection("users").doc(userRecord.uid).set({ displayName, role, username, email });
-    return { success: true, message: `Created ${displayName}` };
-  } catch (error: any) {
-    throw new HttpsError("internal", error.message);
+    try {
+      const userRecord = await admin
+        .auth()
+        .createUser({ email, password, displayName });
+      await admin
+        .firestore()
+        .collection("users")
+        .doc(userRecord.uid)
+        .set({ displayName, role, username, email });
+      return { success: true, message: `Created ${displayName}` };
+    } catch (error: any) {
+      throw new HttpsError("internal", error.message);
+    }
   }
-});
+);
 
 // ===================================================================
 // 2. DELETE USER
 // ===================================================================
 export const deleteUser = onCall(
   async (request: CallableRequest<DeleteUserData>) => {
-  if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
-  const callerDoc = await admin.firestore().collection("users").doc(request.auth.uid).get();
-  if (callerDoc.data()?.role !== "ADMIN") throw new HttpsError("permission-denied", "Admin only.");
-  if (request.auth.uid === request.data.uid) throw new HttpsError("invalid-argument", "Cannot delete self.");
+    if (!request.auth)
+      throw new HttpsError("unauthenticated", "Must be logged in.");
+    const callerDoc = await admin
+      .firestore()
+      .collection("users")
+      .doc(request.auth.uid)
+      .get();
+    if (callerDoc.data()?.role !== "ADMIN")
+      throw new HttpsError("permission-denied", "Admin only.");
+    if (request.auth.uid === request.data.uid)
+      throw new HttpsError("invalid-argument", "Cannot delete self.");
 
-  try {
-    await admin.auth().deleteUser(request.data.uid);
-    await admin.firestore().collection("users").doc(request.data.uid).delete();
-    return { success: true };
-  } catch (error: any) {
-    throw new HttpsError("internal", error.message);
+    try {
+      await admin.auth().deleteUser(request.data.uid);
+      await admin
+        .firestore()
+        .collection("users")
+        .doc(request.data.uid)
+        .delete();
+      return { success: true };
+    } catch (error: any) {
+      throw new HttpsError("internal", error.message);
+    }
   }
-});
+);
 
 // ===================================================================
 // 3. DELETE ALL USERS
 // ===================================================================
-export const deleteAllUsers = onCall(
-  async (request: CallableRequest<void>) => {
-  if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
-  const callerDoc = await admin.firestore().collection("users").doc(request.auth.uid).get();
-  if (callerDoc.data()?.role !== "ADMIN") throw new HttpsError("permission-denied", "Admin only.");
+export const deleteAllUsers = onCall(async (request: CallableRequest<void>) => {
+  if (!request.auth)
+    throw new HttpsError("unauthenticated", "Must be logged in.");
+  const callerDoc = await admin
+    .firestore()
+    .collection("users")
+    .doc(request.auth.uid)
+    .get();
+  if (callerDoc.data()?.role !== "ADMIN")
+    throw new HttpsError("permission-denied", "Admin only.");
 
   try {
     const usersSnapshot = await admin.firestore().collection("users").get();
@@ -89,7 +133,12 @@ export const deleteAllUsers = onCall(
     let deletedCount = 0;
     for (const doc of usersSnapshot.docs) {
       if (doc.id === request.auth.uid) continue;
-      promises.push(admin.auth().deleteUser(doc.id).catch(() => {}));
+      promises.push(
+        admin
+          .auth()
+          .deleteUser(doc.id)
+          .catch(() => {})
+      );
       promises.push(doc.ref.delete());
       deletedCount++;
     }
@@ -105,119 +154,380 @@ export const deleteAllUsers = onCall(
 // ===================================================================
 export const createStation = onCall(
   async (request: CallableRequest<StationData>) => {
-  if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
-  const callerDoc = await admin.firestore().collection("users").doc(request.auth.uid).get();
-  if (callerDoc.data()?.role !== "ADMIN") throw new HttpsError("permission-denied", "Admin only.");
+    if (!request.auth)
+      throw new HttpsError("unauthenticated", "Must be logged in.");
+    const callerDoc = await admin
+      .firestore()
+      .collection("users")
+      .doc(request.auth.uid)
+      .get();
+    if (callerDoc.data()?.role !== "ADMIN")
+      throw new HttpsError("permission-denied", "Admin only.");
 
-  try {
-    const ref = admin.firestore().collection("stations").doc();
-    await ref.set({ ...request.data, status: "OPEN", travelingCount: 0, arrivedCount: 0 });
-    return { success: true, id: ref.id };
-  } catch (error: any) {
-    throw new HttpsError("internal", error.message);
+    try {
+      const ref = admin.firestore().collection("stations").doc();
+      await ref.set({
+        ...request.data,
+        status: "OPEN",
+        travelingCount: 0,
+        arrivedCount: 0,
+      });
+      return { success: true, id: ref.id };
+    } catch (error: any) {
+      throw new HttpsError("internal", error.message);
+    }
   }
-});
+);
 
 // ===================================================================
 // 5. DELETE STATION
 // ===================================================================
 export const deleteStation = onCall(
   async (request: CallableRequest<{ id: string }>) => {
-  if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
-  const callerDoc = await admin.firestore().collection("users").doc(request.auth.uid).get();
-  if (callerDoc.data()?.role !== "ADMIN") throw new HttpsError("permission-denied", "Admin only.");
+    if (!request.auth)
+      throw new HttpsError("unauthenticated", "Must be logged in.");
+    const callerDoc = await admin
+      .firestore()
+      .collection("users")
+      .doc(request.auth.uid)
+      .get();
+    if (callerDoc.data()?.role !== "ADMIN")
+      throw new HttpsError("permission-denied", "Admin only.");
 
-  try {
-    await admin.firestore().collection("stations").doc(request.data.id).delete();
-    return { success: true };
-  } catch (error: any) {
-    throw new HttpsError("internal", error.message);
+    try {
+      await admin
+        .firestore()
+        .collection("stations")
+        .doc(request.data.id)
+        .delete();
+      return { success: true };
+    } catch (error: any) {
+      throw new HttpsError("internal", error.message);
+    }
   }
-});
+);
 
 // ===================================================================
 // 6. CREATE SIDE QUEST (NEW! V2 SYNTAX)
 // ===================================================================
 export const createSideQuest = onCall(
   async (request: CallableRequest<SideQuestData>) => {
-  if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
-  const callerDoc = await admin.firestore().collection("users").doc(request.auth.uid).get();
-  if (callerDoc.data()?.role !== "ADMIN") throw new HttpsError("permission-denied", "Admin only.");
+    if (!request.auth)
+      throw new HttpsError("unauthenticated", "Must be logged in.");
+    const callerDoc = await admin
+      .firestore()
+      .collection("users")
+      .doc(request.auth.uid)
+      .get();
+    if (callerDoc.data()?.role !== "ADMIN")
+      throw new HttpsError("permission-denied", "Admin only.");
 
-  try {
-    const ref = admin.firestore().collection("sideQuests").doc();
-    await ref.set(request.data);
-    return { success: true, id: ref.id };
-  } catch (error: any) {
-    throw new HttpsError("internal", error.message);
+    try {
+      const ref = admin.firestore().collection("sideQuests").doc();
+      await ref.set(request.data);
+      return { success: true, id: ref.id };
+    } catch (error: any) {
+      throw new HttpsError("internal", error.message);
+    }
   }
-});
+);
 
 // ===================================================================
 // 7. DELETE SIDE QUEST (NEW! V2 SYNTAX)
 // ===================================================================
 export const deleteSideQuest = onCall(
   async (request: CallableRequest<{ id: string }>) => {
-  if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
-  const callerDoc = await admin.firestore().collection("users").doc(request.auth.uid).get();
-  if (callerDoc.data()?.role !== "ADMIN") throw new HttpsError("permission-denied", "Admin only.");
+    if (!request.auth)
+      throw new HttpsError("unauthenticated", "Must be logged in.");
+    const callerDoc = await admin
+      .firestore()
+      .collection("users")
+      .doc(request.auth.uid)
+      .get();
+    if (callerDoc.data()?.role !== "ADMIN")
+      throw new HttpsError("permission-denied", "Admin only.");
 
-  try {
-    await admin.firestore().collection("sideQuests").doc(request.data.id).delete();
-    return { success: true };
-  } catch (error: any) {
-    throw new HttpsError("internal", error.message);
+    try {
+      await admin
+        .firestore()
+        .collection("sideQuests")
+        .doc(request.data.id)
+        .delete();
+      return { success: true };
+    } catch (error: any) {
+      throw new HttpsError("internal", error.message);
+    }
   }
-});
+);
 
 // ===================================================================
 // 8. UPDATE SIDE QUEST (NEW!)
 // ===================================================================
 export const updateSideQuest = onCall(
   async (request: CallableRequest<SideQuestData & { id: string }>) => {
-  
-  if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
-  const callerDoc = await admin.firestore().collection("users").doc(request.auth.uid).get();
-  if (callerDoc.data()?.role !== "ADMIN") throw new HttpsError("permission-denied", "Admin only.");
+    if (!request.auth)
+      throw new HttpsError("unauthenticated", "Must be logged in.");
+    const callerDoc = await admin
+      .firestore()
+      .collection("users")
+      .doc(request.auth.uid)
+      .get();
+    if (callerDoc.data()?.role !== "ADMIN")
+      throw new HttpsError("permission-denied", "Admin only.");
 
-  const { id, name, description, points, submissionType, isSmManaged } = request.data;
-  
-  if (!id || !name || points === undefined) {
-    throw new HttpsError("invalid-argument", "ID, Name, and Points are required.");
-  }
+    const { id, name, description, points, submissionType, isSmManaged } =
+      request.data;
 
-  try {
-    await admin.firestore().collection("sideQuests").doc(id).update({
-      name, description, points, submissionType, isSmManaged
-    });
-    return { success: true, message: "Side quest updated." };
-  } catch (error: any) {
-    throw new HttpsError("internal", error.message);
+    if (!id || !name || points === undefined) {
+      throw new HttpsError(
+        "invalid-argument",
+        "ID, Name, and Points are required."
+      );
+    }
+
+    try {
+      await admin.firestore().collection("sideQuests").doc(id).update({
+        name,
+        description,
+        points,
+        submissionType,
+        isSmManaged,
+      });
+      return { success: true, message: "Side quest updated." };
+    } catch (error: any) {
+      throw new HttpsError("internal", error.message);
+    }
   }
-});
+);
 
 // ===================================================================
 // 9. UPDATE STATION (NEW!)
 // ===================================================================
 export const updateStation = onCall(
   async (request: CallableRequest<StationData & { id: string }>) => {
-    
-  if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
-  const callerDoc = await admin.firestore().collection("users").doc(request.auth.uid).get();
-  if (callerDoc.data()?.role !== "ADMIN") throw new HttpsError("permission-denied", "Admin only.");
+    if (!request.auth)
+      throw new HttpsError("unauthenticated", "Must be logged in.");
+    const callerDoc = await admin
+      .firestore()
+      .collection("users")
+      .doc(request.auth.uid)
+      .get();
+    if (callerDoc.data()?.role !== "ADMIN")
+      throw new HttpsError("permission-denied", "Admin only.");
 
-  const { id, name, type, description, location } = request.data;
-  
-  if (!id || !name || !type) {
-    throw new HttpsError("invalid-argument", "ID, Name, and Type are required.");
+    const { id, name, type, description, location } = request.data;
+
+    if (!id || !name || !type) {
+      throw new HttpsError(
+        "invalid-argument",
+        "ID, Name, and Type are required."
+      );
+    }
+
+    try {
+      // We only update the editable fields, NOT the status or counts
+      await admin
+        .firestore()
+        .collection("stations")
+        .doc(id)
+        .update({
+          name,
+          type,
+          description: description || "",
+          location: location || "",
+        });
+      return { success: true, message: `Updated station: ${name}` };
+    } catch (error: any) {
+      throw new HttpsError("internal", error.message);
+    }
   }
+);
+
+// ===================================================================
+// 10. SET STATION (FOR SM LOGIN) - THIS WAS MISSING!
+// ===================================================================
+export const setStation = onCall(
+  async (request: CallableRequest<{ stationId: string }>) => {
+    if (!request.auth)
+      throw new HttpsError("unauthenticated", "Must be logged in.");
+    const userRef = admin.firestore().collection("users").doc(request.auth.uid);
+    const userDoc = await userRef.get();
+    if (userDoc.data()?.role !== "SM")
+      throw new HttpsError(
+        "permission-denied",
+        "Only SMs can select a station."
+      );
+
+    try {
+      await userRef.update({ selectedStationId: request.data.stationId });
+      return { success: true };
+    } catch (error: any) {
+      throw new HttpsError("internal", error.message);
+    }
+  }
+);
+
+// ===================================================================
+// 11. UPDATE STATION STATUS (FOR SM DASHBOARD)
+// ===================================================================
+export const updateStationStatus = onCall(
+  async (
+    request: CallableRequest<{ stationId: string; newStatus: string }>
+  ) => {
+    if (!request.auth)
+      throw new HttpsError("unauthenticated", "Must be logged in.");
+    const callerDoc = await admin
+      .firestore()
+      .collection("users")
+      .doc(request.auth.uid)
+      .get();
+    if (callerDoc.data()?.role !== "SM")
+      throw new HttpsError("permission-denied", "Only SMs can update status.");
+    if (callerDoc.data()?.selectedStationId !== request.data.stationId) {
+      throw new HttpsError(
+        "permission-denied",
+        "You can only manage your selected station."
+      );
+    }
+
+    try {
+      await admin
+        .firestore()
+        .collection("stations")
+        .doc(request.data.stationId)
+        .update({
+          status: request.data.newStatus,
+        });
+      return { success: true };
+    } catch (error: any) {
+      throw new HttpsError("internal", error.message);
+    }
+  }
+);
+
+// ===================================================================
+// 12. SUBMIT SCORE (UNIFIED - HANDLES BOTH STATION & SIDE QUEST)
+// ===================================================================
+export const submitScore = onCall(
+  async (request: CallableRequest<ScoreData>) => {
+    if (!request.auth)
+      throw new HttpsError("unauthenticated", "Must be logged in.");
+
+    const callerDoc = await admin
+      .firestore()
+      .collection("users")
+      .doc(request.auth.uid)
+      .get();
+    const callerRole = callerDoc.data()?.role;
+    if (callerRole !== "SM" && callerRole !== "ADMIN") {
+      throw new HttpsError("permission-denied", "Unauthorized.");
+    }
+
+    const {
+      groupId,
+      stationId,
+      stationPoints,
+      adminNote,
+      sideQuestId,
+      sideQuestPoints,
+    } = request.data;
+    if (!groupId || !stationId) {
+      throw new HttpsError("invalid-argument", "Missing group or station ID.");
+    }
+
+    try {
+      const batch = admin.firestore().batch();
+      const groupRef = admin.firestore().collection("groups").doc(groupId);
+      let totalPointsToAdd = 0;
+      const updateData: any = {};
+
+      // 1. HANDLE STATION SCORE (If provided)
+      if (stationPoints !== undefined && stationPoints !== null) {
+        totalPointsToAdd += stationPoints;
+        // Mark station as completed
+        updateData.completedStations =
+          admin.firestore.FieldValue.arrayUnion(stationId);
+        // **CRITICAL: This is what "departs" them**
+        updateData.status = "IDLE";
+        updateData.destinationId = admin.firestore.FieldValue.delete();
+        updateData.destinationEta = admin.firestore.FieldValue.delete();
+
+        // Log it
+        const logRef = admin.firestore().collection("scoreLog").doc();
+        batch.set(logRef, {
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+          groupId,
+          stationId,
+          points: stationPoints,
+          type: "STATION",
+          awardedBy: request.auth.uid,
+          awardedByRole: callerRole,
+          note: adminNote || "",
+        });
+      }
+
+      // 2. HANDLE SIDE QUEST (If provided)
+      if (sideQuestId && sideQuestPoints !== undefined) {
+        totalPointsToAdd += sideQuestPoints;
+        // Mark side quest as completed
+        updateData.completedSideQuests =
+          admin.firestore.FieldValue.arrayUnion(sideQuestId);
+
+        // Log it
+        const sqLogRef = admin.firestore().collection("scoreLog").doc();
+        batch.set(sqLogRef, {
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+          groupId,
+          sourceId: sideQuestId,
+          points: sideQuestPoints,
+          type: "SIDE_QUEST",
+          awardedBy: request.auth.uid,
+          awardedByRole: callerRole,
+        });
+      }
+
+      // 3. UPDATE TOTAL SCORE (If we added any points)
+      if (totalPointsToAdd > 0) {
+        updateData.totalScore =
+          admin.firestore.FieldValue.increment(totalPointsToAdd);
+      }
+
+      // Only run update if we actually have data to update
+      if (Object.keys(updateData).length > 0) {
+        batch.update(groupRef, updateData);
+      }
+
+      await batch.commit();
+      return { success: true, message: "Scores submitted." };
+    } catch (error: any) {
+      console.error("Score error:", error);
+      throw new HttpsError("internal", error.message);
+    }
+  }
+);
+
+// ===================================================================
+// 13. LEAVE STATION (FOR SMs)
+// ===================================================================
+export const leaveStation = onCall(async (request: CallableRequest<void>) => {
+  if (!request.auth)
+    throw new HttpsError("unauthenticated", "Must be logged in.");
+
+  const userRef = admin.firestore().collection("users").doc(request.auth.uid);
+  const userDoc = await userRef.get();
+
+  if (userDoc.data()?.role !== "SM")
+    throw new HttpsError(
+      "permission-denied",
+      "Only SMs can perform this action."
+    );
 
   try {
-    // We only update the editable fields, NOT the status or counts
-    await admin.firestore().collection("stations").doc(id).update({
-      name, type, description: description || "", location: location || ""
+    // We use FieldValue.delete() to completely remove the field
+    await userRef.update({
+      selectedStationId: admin.firestore.FieldValue.delete(),
     });
-    return { success: true, message: `Updated station: ${name}` };
+    return { success: true, message: "Station un-selected." };
   } catch (error: any) {
     throw new HttpsError("internal", error.message);
   }

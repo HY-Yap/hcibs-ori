@@ -23,25 +23,22 @@ import {
   MenuItem,
   ListItemIcon,
 } from "@mui/material";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, onSnapshot } from "firebase/firestore"; // <-- CHANGED: use onSnapshot
 import { getFunctions, httpsCallable } from "firebase/functions";
 import { db } from "../firebase";
+import { StationModal, type StationData } from "../components/StationModal";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
-// Import the interface and component
-import { StationModal, type StationData } from "../components/StationModal";
 
 export const AdminStationManagement: React.FC = () => {
   const [stations, setStations] = useState<StationData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Modal state
+  // Modal & Menu state
   const [isModalOpen, setModalOpen] = useState(false);
   const [stationToEdit, setStationToEdit] = useState<StationData | null>(null);
-
-  // Menu state
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [selectedStation, setSelectedStation] = useState<StationData | null>(
     null
@@ -51,26 +48,31 @@ export const AdminStationManagement: React.FC = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
-  const fetchStations = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const querySnapshot = await getDocs(collection(db, "stations"));
-      const stationList = querySnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as StationData[];
-      setStations(stationList.sort((a, b) => a.name.localeCompare(b.name)));
-    } catch (err) {
-      console.error("Error fetching stations:", err);
-      setError("Failed to load stations.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // --- NEW! REAL-TIME LISTENER ---
   useEffect(() => {
-    fetchStations();
+    setLoading(true);
+    // onSnapshot listens for ANY change in the 'stations' collection
+    const unsubscribe = onSnapshot(
+      collection(db, "stations"),
+      (snapshot) => {
+        const stationList = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        })) as StationData[];
+
+        // Sort alphabetically
+        setStations(stationList.sort((a, b) => a.name.localeCompare(b.name)));
+        setLoading(false);
+      },
+      (err) => {
+        console.error("Error fetching stations:", err);
+        setError("Failed to load stations live.");
+        setLoading(false);
+      }
+    );
+
+    // Cleanup listener when leaving page
+    return () => unsubscribe();
   }, []);
 
   // --- HANDLERS ---
@@ -111,7 +113,7 @@ export const AdminStationManagement: React.FC = () => {
       const deleteStationFn = httpsCallable(functions, "deleteStation");
       await deleteStationFn({ id: selectedStation.id });
       setDeleteDialogOpen(false);
-      fetchStations();
+      // No need to manually fetch! onSnapshot will see the deletion and update automatically.
     } catch (err) {
       console.error("Delete failed:", err);
       alert("Failed to delete station.");
@@ -153,6 +155,12 @@ export const AdminStationManagement: React.FC = () => {
                   <CircularProgress />
                 </TableCell>
               </TableRow>
+            ) : stations.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={5} align="center">
+                  No stations found.
+                </TableCell>
+              </TableRow>
             ) : (
               stations.map((s) => (
                 <TableRow key={s.id}>
@@ -166,9 +174,16 @@ export const AdminStationManagement: React.FC = () => {
                   </TableCell>
                   <TableCell>{s.location || "-"}</TableCell>
                   <TableCell>
+                    {/* --- LIVE STATUS CHIP --- */}
                     <Chip
                       label={(s.status || "OPEN").replace("_", " ")}
-                      color={s.status === "OPEN" ? "success" : "error"}
+                      color={
+                        s.status === "OPEN"
+                          ? "success"
+                          : s.status === "CLOSED_LUNCH"
+                          ? "warning"
+                          : "error"
+                      }
                       size="small"
                     />
                   </TableCell>
@@ -203,10 +218,11 @@ export const AdminStationManagement: React.FC = () => {
         </MenuItem>
       </Menu>
 
+      {/* We use 'onSuccess' now to match the new component definition */}
       <StationModal
         open={isModalOpen}
         onClose={() => setModalOpen(false)}
-        onStationAdded={fetchStations}
+        onSuccess={() => {}} // <-- FIXED!
         initialData={stationToEdit}
       />
 
