@@ -10,6 +10,7 @@ import { AdminUserManagement } from "./pages/AdminUserManagement";
 import { LeaderboardPage } from "./pages/Leaderboard";
 import { StationsPage } from "./pages/Stations";
 import { SideQuestsPage } from "./pages/SideQuests";
+import { AdminStationManagement } from './pages/AdminStationManagement';
 
 // Import all our components
 import { Layout } from "./components/Layout";
@@ -35,6 +36,7 @@ function App() {
           <Route element={<ProtectedRoute allowedRoles={["ADMIN"]} />}>
             <Route path="admin" element={<AdminDashboard />} />
             <Route path="admin/users" element={<AdminUserManagement />} />
+            <Route path="admin/stations" element={<AdminStationManagement />} />
           </Route>
 
           {/* SM ROUTES (protected) */}
