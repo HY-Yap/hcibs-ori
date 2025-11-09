@@ -106,6 +106,7 @@ const Header: React.FC = () => {
           { name: "Manage Side Quests", path: "/admin/sidequests" },
           { name: "DIVIDER", path: "", isDivider: true },
           { name: "Game Controls", path: "/admin/controls" },
+          { name: "Score Log", path: "/admin/scorelog" },
         ],
       },
     ];
