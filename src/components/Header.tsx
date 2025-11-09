@@ -107,6 +107,7 @@ const Header: React.FC = () => {
         name: "Admin Tools",
         items: [
           { name: "Manage Users", path: "/admin/users" },
+          { name: "Manage Groups", path: "/admin/groups" },
           { name: "Manage Stations", path: "/admin/stations" },
           { name: "Manage Side Quests", path: "/admin/sidequests" },
           { name: "DIVIDER", path: "", isDivider: true },

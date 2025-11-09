@@ -12,6 +12,7 @@ import { StationsPage } from "./pages/Stations";
 import { SideQuestsPage } from "./pages/SideQuests";
 import { AdminStationManagement } from './pages/AdminStationManagement';
 import { AdminSideQuestManagement } from './pages/SideQuestManagement';
+import { AdminGroupManagement } from "./pages/AdminGroupManagement";
 
 // Import all our components
 import { Layout } from "./components/Layout";
@@ -37,6 +38,7 @@ function App() {
           <Route element={<ProtectedRoute allowedRoles={["ADMIN"]} />}>
             <Route path="admin" element={<AdminDashboard />} />
             <Route path="admin/users" element={<AdminUserManagement />} />
+            <Route path="admin/groups" element={<AdminGroupManagement />} />
             <Route path="admin/stations" element={<AdminStationManagement />} />
             <Route path="admin/sidequests" element={<AdminSideQuestManagement />} />
           </Route>
