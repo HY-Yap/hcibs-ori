@@ -27,7 +27,7 @@ interface GroupData {
   totalScore: number;
 }
 
-const MotionTableRow = motion(TableRow);
+const MotionTableRow = motion.create(TableRow);
 
 export const LeaderboardPage: FC = () => {
   const theme = useTheme();
