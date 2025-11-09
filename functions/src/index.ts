@@ -41,11 +41,10 @@ interface SideQuestData {
 // --- NEW INTERFACE FOR SCORE SUBMISSION ---
 interface ScoreData {
   groupId: string;
-  stationId: string; // The SM's current station
-  stationPoints?: number; // Optional: The main task points
-  adminNote?: string; // Optional: Note for the main task
-  sideQuestId?: string; // Optional: ID of a side quest to award
-  sideQuestPoints?: number; // Optional: Points for that side quest
+  points: number;
+  type: "STATION" | "SIDE_QUEST";
+  id: string; // The ID of the station OR side quest being awarded
+  adminNote?: string;
 }
 
 // ===================================================================
@@ -406,101 +405,93 @@ export const updateStationStatus = onCall(
 );
 
 // ===================================================================
-// 12. SUBMIT SCORE (UNIFIED - HANDLES BOTH STATION & SIDE QUEST)
+// 12. SUBMIT SCORE (UPDATED FOR OGL SELF-SUBMIT)
 // ===================================================================
 export const submitScore = onCall(
   async (request: CallableRequest<ScoreData>) => {
     if (!request.auth)
       throw new HttpsError("unauthenticated", "Must be logged in.");
 
+    // 1. GET CALLER DETAILS
     const callerDoc = await admin
       .firestore()
       .collection("users")
       .doc(request.auth.uid)
       .get();
-    const callerRole = callerDoc.data()?.role;
-    if (callerRole !== "SM" && callerRole !== "ADMIN") {
-      throw new HttpsError("permission-denied", "Unauthorized.");
+    const callerData = callerDoc.data();
+    const callerRole = callerData?.role;
+    const callerGroupId = callerData?.groupId;
+
+    const { groupId, points, type, id, adminNote } = request.data;
+    if (!groupId || points === undefined || !type || !id) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Missing required scoring data."
+      );
     }
 
-    const {
-      groupId,
-      stationId,
-      stationPoints,
-      adminNote,
-      sideQuestId,
-      sideQuestPoints,
-    } = request.data;
-    if (!groupId || !stationId) {
-      throw new HttpsError("invalid-argument", "Missing group or station ID.");
+    // 2. SECURITY CHECK (WHO IS ALLOWED TO DO WHAT?)
+    if (callerRole === "ADMIN" || callerRole === "SM") {
+      // Admins and SMs can submit anything for anyone. Approved.
+    } else if (callerRole === "OGL") {
+      // OGLs have strict rules:
+      // Rule A: Must be submitting for THEIR OWN group.
+      if (groupId !== callerGroupId) {
+        throw new HttpsError(
+          "permission-denied",
+          "You can only submit for your own group."
+        );
+      }
+      // Rule B: Must be a SIDE_QUEST. They cannot self-score stations.
+      if (type !== "SIDE_QUEST") {
+        throw new HttpsError(
+          "permission-denied",
+          "OGLs cannot self-score stations."
+        );
+      }
+      // Approved.
+    } else {
+      // Guests or unassigned users cannot submit anything.
+      throw new HttpsError("permission-denied", "Unauthorized.");
     }
 
     try {
       const batch = admin.firestore().batch();
       const groupRef = admin.firestore().collection("groups").doc(groupId);
-      let totalPointsToAdd = 0;
-      const updateData: any = {};
 
-      // 1. HANDLE STATION SCORE (If provided)
-      if (stationPoints !== undefined && stationPoints !== null) {
-        totalPointsToAdd += stationPoints;
-        // Mark station as completed
+      const updateData: any = {
+        totalScore: admin.firestore.FieldValue.increment(points),
+      };
+
+      if (type === "STATION") {
         updateData.completedStations =
-          admin.firestore.FieldValue.arrayUnion(stationId);
-        // **CRITICAL: This is what "departs" them**
+          admin.firestore.FieldValue.arrayUnion(id);
         updateData.status = "IDLE";
         updateData.destinationId = admin.firestore.FieldValue.delete();
         updateData.destinationEta = admin.firestore.FieldValue.delete();
-
-        // Log it
-        const logRef = admin.firestore().collection("scoreLog").doc();
-        batch.set(logRef, {
-          timestamp: admin.firestore.FieldValue.serverTimestamp(),
-          groupId,
-          stationId,
-          points: stationPoints,
-          type: "STATION",
-          awardedBy: request.auth.uid,
-          awardedByRole: callerRole,
-          note: adminNote || "",
-        });
-      }
-
-      // 2. HANDLE SIDE QUEST (If provided)
-      if (sideQuestId && sideQuestPoints !== undefined) {
-        totalPointsToAdd += sideQuestPoints;
-        // Mark side quest as completed
+      } else {
         updateData.completedSideQuests =
-          admin.firestore.FieldValue.arrayUnion(sideQuestId);
-
-        // Log it
-        const sqLogRef = admin.firestore().collection("scoreLog").doc();
-        batch.set(sqLogRef, {
-          timestamp: admin.firestore.FieldValue.serverTimestamp(),
-          groupId,
-          sourceId: sideQuestId,
-          points: sideQuestPoints,
-          type: "SIDE_QUEST",
-          awardedBy: request.auth.uid,
-          awardedByRole: callerRole,
-        });
+          admin.firestore.FieldValue.arrayUnion(id);
       }
 
-      // 3. UPDATE TOTAL SCORE (If we added any points)
-      if (totalPointsToAdd > 0) {
-        updateData.totalScore =
-          admin.firestore.FieldValue.increment(totalPointsToAdd);
-      }
+      batch.update(groupRef, updateData);
 
-      // Only run update if we actually have data to update
-      if (Object.keys(updateData).length > 0) {
-        batch.update(groupRef, updateData);
-      }
+      const logRef = admin.firestore().collection("scoreLog").doc();
+      batch.set(logRef, {
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        groupId,
+        points,
+        type,
+        sourceId: id,
+        awardedBy: request.auth.uid,
+        awardedByRole: callerRole,
+        note: adminNote || "",
+      });
 
       await batch.commit();
-      return { success: true, message: "Scores submitted." };
+      return { success: true, message: "Score submitted successfully." };
     } catch (error: any) {
-      console.error("Score error:", error);
+      console.error("Score submission error:", error);
       throw new HttpsError("internal", error.message);
     }
   }

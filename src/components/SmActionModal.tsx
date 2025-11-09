@@ -59,7 +59,7 @@ export const SmActionModal: FC<Props> = ({
 
   useEffect(() => {
     if (open) {
-      // Always fetch side quests when opening, just in case they switch tabs
+      // Always fetch side quests when opening
       const fetchSideQuests = async () => {
         const q = query(
           collection(db, "sideQuests"),
@@ -90,28 +90,39 @@ export const SmActionModal: FC<Props> = ({
       const functions = getFunctions(undefined, "asia-southeast1");
       const submitScoreFn = httpsCallable(functions, "submitScore");
 
-      // Prepare the data payload
-      const payload: any = {
-        groupId: group.id,
-        stationId: stationId,
-      };
+      // We will collect all necessary API calls in this array
+      const promises = [];
 
-      // Add Station Score if entered
+      // 1. If Station Points are entered, queue that call
       if (stationPoints) {
-        payload.stationPoints = Number(stationPoints);
-        payload.adminNote = adminNote;
+        promises.push(
+          submitScoreFn({
+            groupId: group.id,
+            points: Number(stationPoints),
+            type: "STATION",
+            id: stationId,
+            adminNote,
+          })
+        );
       }
 
-      // Add Side Quest if selected
+      // 2. If Side Quest is selected, queue that call too
       if (selectedQuestId) {
         const quest = sideQuests.find((sq) => sq.id === selectedQuestId);
         if (quest) {
-          payload.sideQuestId = quest.id;
-          payload.sideQuestPoints = quest.points;
+          promises.push(
+            submitScoreFn({
+              groupId: group.id,
+              points: quest.points,
+              type: "SIDE_QUEST",
+              id: selectedQuestId,
+            })
+          );
         }
       }
 
-      await submitScoreFn(payload);
+      // 3. Wait for ALL calls to finish successfully
+      await Promise.all(promises);
 
       onClose();
       // Reset forms
@@ -144,8 +155,7 @@ export const SmActionModal: FC<Props> = ({
           </Alert>
         )}
 
-        {/* We use 'display: none' instead of conditional rendering so the state 
-            preserves if they switch tabs before submitting */}
+        {/* We use 'display: none' to keep state alive between tabs */}
         <Box
           sx={{
             display: tab === 0 ? "flex" : "none",
@@ -202,20 +212,26 @@ export const SmActionModal: FC<Props> = ({
           </FormControl>
         </Box>
 
-        {/* SUMMARY: Show them what they are about to submit if they have data in the HIDDEN tab */}
-        {(stationPoints && tab === 1) || (selectedQuestId && tab === 0) ? (
-          <Box sx={{ mt: 3, p: 2, bgcolor: "#f5f5f5", borderRadius: 1 }}>
-            <Typography variant="subtitle2" gutterBottom>
-              Summary of what will be submitted:
+        {/* SUMMARY: Show them if they are about to submit BOTH */}
+        {stationPoints && selectedQuestId ? (
+          <Box
+            sx={{
+              mt: 3,
+              p: 2,
+              bgcolor: "#e8f5e9",
+              borderRadius: 1,
+              border: "1px solid #c8e6c9",
+            }}
+          >
+            <Typography variant="subtitle2" gutterBottom color="success.main">
+              You are about to submit BOTH:
             </Typography>
-            {stationPoints && (
-              <Typography variant="body2">
-                • Station Score: {stationPoints} pts
-              </Typography>
-            )}
-            {selectedQuestId && (
-              <Typography variant="body2">• Side Quest: Selected</Typography>
-            )}
+            <Typography variant="body2">
+              • Station Score: <strong>{stationPoints}</strong> pts
+            </Typography>
+            <Typography variant="body2">
+              • Side Quest: <strong>Selected</strong>
+            </Typography>
           </Box>
         ) : null}
       </DialogContent>
@@ -224,7 +240,7 @@ export const SmActionModal: FC<Props> = ({
           Cancel
         </Button>
         <Button onClick={handleSubmit} variant="contained" disabled={loading}>
-          {loading ? <CircularProgress size={24} /> : "Submit All"}
+          {loading ? <CircularProgress size={24} /> : "Submit"}
         </Button>
       </DialogActions>
     </Dialog>
