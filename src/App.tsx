@@ -13,6 +13,7 @@ import { SideQuestsPage } from "./pages/SideQuests";
 import { AdminStationManagement } from './pages/AdminStationManagement';
 import { AdminSideQuestManagement } from './pages/SideQuestManagement';
 import { AdminGroupManagement } from "./pages/AdminGroupManagement";
+import { OglJourney } from "./pages/OglJourney";
 
 // Import all our components
 import { Layout } from "./components/Layout";
@@ -51,6 +52,7 @@ function App() {
           {/* OGL ROUTES (protected) */}
           <Route element={<ProtectedRoute allowedRoles={["OGL"]} />}>
             <Route path="ogl" element={<OglDashboard />} />
+            <Route path="ogl/journey" element={<OglJourney />} />
           </Route>
 
           {/* "Not Found" page, now also using MUI components */}
