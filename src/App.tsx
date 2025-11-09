@@ -10,12 +10,12 @@ import { AdminUserManagement } from "./pages/AdminUserManagement";
 import { LeaderboardPage } from "./pages/Leaderboard";
 import { StationsPage } from "./pages/Stations";
 import { SideQuestsPage } from "./pages/SideQuests";
-import { AdminStationManagement } from './pages/AdminStationManagement';
-import { AdminSideQuestManagement } from './pages/SideQuestManagement';
+import { AdminStationManagement } from "./pages/AdminStationManagement";
+import { AdminSideQuestManagement } from "./pages/SideQuestManagement";
 import { AdminGroupManagement } from "./pages/AdminGroupManagement";
 import { OglJourney } from "./pages/OglJourney";
 import { OglSideQuests } from "./pages/OglSideQuests";
-import { AdminGameControls } from './pages/AdminGameControls';
+import { AdminGameControls } from "./pages/AdminGameControls";
 import { AdminScoreLog } from "./pages/AdminScoreLog";
 
 // Import all our components
@@ -44,8 +44,11 @@ function App() {
             <Route path="admin/users" element={<AdminUserManagement />} />
             <Route path="admin/groups" element={<AdminGroupManagement />} />
             <Route path="admin/stations" element={<AdminStationManagement />} />
-            <Route path="admin/sidequests" element={<AdminSideQuestManagement />} />
-            <Route path="admin/gamecontrols" element={<AdminGameControls />} />
+            <Route
+              path="admin/sidequests"
+              element={<AdminSideQuestManagement />}
+            />
+            <Route path="admin/controls" element={<AdminGameControls />} />
             <Route path="admin/scorelog" element={<AdminScoreLog />} />
           </Route>
 
