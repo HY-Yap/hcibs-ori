@@ -532,3 +532,108 @@ export const leaveStation = onCall(async (request: CallableRequest<void>) => {
     throw new HttpsError("internal", error.message);
   }
 });
+
+// ===================================================================
+// 14. CREATE GROUP
+// ===================================================================
+export const createGroup = onCall(
+  async (request: CallableRequest<{ name: string }>) => {
+    if (!request.auth)
+      throw new HttpsError("unauthenticated", "Must be logged in.");
+    const callerDoc = await admin
+      .firestore()
+      .collection("users")
+      .doc(request.auth.uid)
+      .get();
+    if (callerDoc.data()?.role !== "ADMIN")
+      throw new HttpsError("permission-denied", "Admin only.");
+
+    const { name } = request.data;
+    if (!name) throw new HttpsError("invalid-argument", "Name is required.");
+
+    try {
+      const ref = admin.firestore().collection("groups").doc();
+      // Initialize with default game state
+      await ref.set({
+        name,
+        status: "IDLE", // Default starting status
+        totalScore: 0, // Start with 0 points
+        completedStations: [], // No stations done yet
+        completedSideQuests: [], // No quests done yet
+      });
+      return { success: true, id: ref.id };
+    } catch (error: any) {
+      throw new HttpsError("internal", error.message);
+    }
+  }
+);
+
+// ===================================================================
+// 15. DELETE GROUP
+// ===================================================================
+export const deleteGroup = onCall(
+  async (request: CallableRequest<{ id: string }>) => {
+    if (!request.auth)
+      throw new HttpsError("unauthenticated", "Must be logged in.");
+    const callerDoc = await admin
+      .firestore()
+      .collection("users")
+      .doc(request.auth.uid)
+      .get();
+    if (callerDoc.data()?.role !== "ADMIN")
+      throw new HttpsError("permission-denied", "Admin only.");
+
+    try {
+      await admin
+        .firestore()
+        .collection("groups")
+        .doc(request.data.id)
+        .delete();
+      return { success: true };
+    } catch (error: any) {
+      throw new HttpsError("internal", error.message);
+    }
+  }
+);
+
+// ===================================================================
+// 16. ASSIGN OGL TO GROUP
+// ===================================================================
+export const assignOglToGroup = onCall(
+  async (request: CallableRequest<{ userId: string; groupId: string }>) => {
+    if (!request.auth)
+      throw new HttpsError("unauthenticated", "Must be logged in.");
+    const callerDoc = await admin
+      .firestore()
+      .collection("users")
+      .doc(request.auth.uid)
+      .get();
+    if (callerDoc.data()?.role !== "ADMIN")
+      throw new HttpsError("permission-denied", "Admin only.");
+
+    const { userId, groupId } = request.data;
+    // Allow passing null/empty groupId to "unassign" an OGL
+
+    try {
+      const batch = admin.firestore().batch();
+
+      // 1. If we are assigning a new OGL, we might need to "unassign" the previous one for this group.
+      // (This is a bit complex to do perfectly atomically without more reads,
+      // so we'll trust the Admin UI to handle displaying it correctly for now).
+      // A simpler way: We just update THIS user.
+
+      const userRef = admin.firestore().collection("users").doc(userId);
+      if (groupId) {
+        batch.update(userRef, { groupId: groupId });
+      } else {
+        // If groupId is empty, we are unassigning
+        batch.update(userRef, { groupId: admin.firestore.FieldValue.delete() });
+      }
+
+      await batch.commit();
+      return { success: true, message: "OGL assigned." };
+    } catch (error: any) {
+      throw new HttpsError("internal", error.message);
+    }
+  }
+);
