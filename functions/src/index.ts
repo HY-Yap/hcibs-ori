@@ -8,7 +8,7 @@ import * as admin from "firebase-admin";
 
 admin.initializeApp();
 
-// --- CONFIGURE REGION ONCE FOR ALL FUNCTIONS ---
+// --- CONFIGURE REGION ---
 setGlobalOptions({ region: "asia-southeast1" });
 
 // --- INTERFACES ---
@@ -28,7 +28,6 @@ interface StationData {
   description: string;
   location: string;
 }
-// --- NEW INTERFACE FOR SIDE QUESTS ---
 interface SideQuestData {
   id?: string;
   name: string;
@@ -37,14 +36,19 @@ interface SideQuestData {
   submissionType: "photo" | "video" | "none";
   isSmManaged: boolean;
 }
-
-// --- NEW INTERFACE FOR SCORE SUBMISSION ---
+// --- CORRECTED SCORE INTERFACE ---
 interface ScoreData {
   groupId: string;
-  points: number;
-  type: "STATION" | "SIDE_QUEST";
-  id: string; // The ID of the station OR side quest being awarded
   adminNote?: string;
+  // Optional: For legacy/single submissions
+  type?: "STATION" | "SIDE_QUEST";
+  id?: string;
+  points?: number;
+  // Optional: For new unified submissions
+  stationId?: string;
+  stationPoints?: number;
+  sideQuestId?: string;
+  sideQuestPoints?: number;
 }
 
 // ===================================================================
@@ -207,7 +211,7 @@ export const deleteStation = onCall(
 );
 
 // ===================================================================
-// 6. CREATE SIDE QUEST (NEW! V2 SYNTAX)
+// 6. CREATE SIDE QUEST
 // ===================================================================
 export const createSideQuest = onCall(
   async (request: CallableRequest<SideQuestData>) => {
@@ -232,7 +236,7 @@ export const createSideQuest = onCall(
 );
 
 // ===================================================================
-// 7. DELETE SIDE QUEST (NEW! V2 SYNTAX)
+// 7. DELETE SIDE QUEST
 // ===================================================================
 export const deleteSideQuest = onCall(
   async (request: CallableRequest<{ id: string }>) => {
@@ -260,7 +264,7 @@ export const deleteSideQuest = onCall(
 );
 
 // ===================================================================
-// 8. UPDATE SIDE QUEST (NEW!)
+// 8. UPDATE SIDE QUEST
 // ===================================================================
 export const updateSideQuest = onCall(
   async (request: CallableRequest<SideQuestData & { id: string }>) => {
@@ -274,25 +278,10 @@ export const updateSideQuest = onCall(
     if (callerDoc.data()?.role !== "ADMIN")
       throw new HttpsError("permission-denied", "Admin only.");
 
-    const { id, name, description, points, submissionType, isSmManaged } =
-      request.data;
-
-    if (!id || !name || points === undefined) {
-      throw new HttpsError(
-        "invalid-argument",
-        "ID, Name, and Points are required."
-      );
-    }
-
     try {
-      await admin.firestore().collection("sideQuests").doc(id).update({
-        name,
-        description,
-        points,
-        submissionType,
-        isSmManaged,
-      });
-      return { success: true, message: "Side quest updated." };
+      const { id, ...data } = request.data;
+      await admin.firestore().collection("sideQuests").doc(id).update(data);
+      return { success: true };
     } catch (error: any) {
       throw new HttpsError("internal", error.message);
     }
@@ -300,7 +289,7 @@ export const updateSideQuest = onCall(
 );
 
 // ===================================================================
-// 9. UPDATE STATION (NEW!)
+// 9. UPDATE STATION
 // ===================================================================
 export const updateStation = onCall(
   async (request: CallableRequest<StationData & { id: string }>) => {
@@ -314,28 +303,14 @@ export const updateStation = onCall(
     if (callerDoc.data()?.role !== "ADMIN")
       throw new HttpsError("permission-denied", "Admin only.");
 
-    const { id, name, type, description, location } = request.data;
-
-    if (!id || !name || !type) {
-      throw new HttpsError(
-        "invalid-argument",
-        "ID, Name, and Type are required."
-      );
-    }
-
     try {
-      // We only update the editable fields, NOT the status or counts
+      const { id, name, type, description, location } = request.data;
       await admin
         .firestore()
         .collection("stations")
         .doc(id)
-        .update({
-          name,
-          type,
-          description: description || "",
-          location: location || "",
-        });
-      return { success: true, message: `Updated station: ${name}` };
+        .update({ name, type, description, location });
+      return { success: true };
     } catch (error: any) {
       throw new HttpsError("internal", error.message);
     }
@@ -343,7 +318,7 @@ export const updateStation = onCall(
 );
 
 // ===================================================================
-// 10. SET STATION (FOR SM LOGIN) - THIS WAS MISSING!
+// 10. SET STATION (FOR SM LOGIN)
 // ===================================================================
 export const setStation = onCall(
   async (request: CallableRequest<{ stationId: string }>) => {
@@ -405,108 +380,130 @@ export const updateStationStatus = onCall(
 );
 
 // ===================================================================
-// 12. SUBMIT SCORE (UPDATED FOR OGL SELF-SUBMIT)
+// 12. SUBMIT SCORE (UNIFIED & SECURE)
 // ===================================================================
 export const submitScore = onCall(
   async (request: CallableRequest<ScoreData>) => {
     if (!request.auth)
       throw new HttpsError("unauthenticated", "Must be logged in.");
 
-    // 1. GET CALLER DETAILS
     const callerDoc = await admin
       .firestore()
       .collection("users")
       .doc(request.auth.uid)
       .get();
-    const callerData = callerDoc.data();
-    const callerRole = callerData?.role;
-    const callerGroupId = callerData?.groupId;
-
-    const { groupId, points, type, id, adminNote } = request.data;
-    if (!groupId || points === undefined || !type || !id) {
-      throw new HttpsError(
-        "invalid-argument",
-        "Missing required scoring data."
-      );
+    const callerRole = callerDoc.data()?.role;
+    if (callerRole !== "SM" && callerRole !== "ADMIN" && callerRole !== "OGL") {
+      throw new HttpsError("permission-denied", "Unauthorized.");
     }
 
-    // 2. SECURITY CHECK (WHO IS ALLOWED TO DO WHAT?)
-    if (callerRole === "ADMIN" || callerRole === "SM") {
-      // Admins and SMs can submit anything for anyone. Approved.
-    } else if (callerRole === "OGL") {
-      // OGLs have strict rules:
-      // Rule A: Must be submitting for THEIR OWN group.
-      if (groupId !== callerGroupId) {
-        throw new HttpsError(
-          "permission-denied",
-          "You can only submit for your own group."
-        );
-      }
-      // Rule B: Must be a SIDE_QUEST. They cannot self-score stations.
-      if (type !== "SIDE_QUEST") {
+    const {
+      groupId,
+      points,
+      type,
+      id,
+      adminNote,
+      stationId,
+      stationPoints,
+      sideQuestId,
+      sideQuestPoints,
+    } = request.data;
+
+    // OGL SECURITY CHECK
+    if (callerRole === "OGL") {
+      if (groupId !== callerDoc.data()?.groupId)
+        throw new HttpsError("permission-denied", "Wrong group.");
+      // OGLs can ONLY submit side quests (either via 'type' OR 'sideQuestId')
+      if (type === "STATION" || stationId)
         throw new HttpsError(
           "permission-denied",
           "OGLs cannot self-score stations."
         );
-      }
-      // Approved.
-    } else {
-      // Guests or unassigned users cannot submit anything.
-      throw new HttpsError("permission-denied", "Unauthorized.");
     }
+
+    if (!groupId) throw new HttpsError("invalid-argument", "Missing group ID.");
 
     try {
       const batch = admin.firestore().batch();
       const groupRef = admin.firestore().collection("groups").doc(groupId);
+      let totalPointsToAdd = 0;
+      const updateData: any = {};
 
-      const updateData: any = {
-        totalScore: admin.firestore.FieldValue.increment(points),
-      };
+      // NORMALIZE INPUTS (Handle both old and new styles)
+      const sPoints = stationPoints ?? (type === "STATION" ? points : 0);
+      const sqPoints = sideQuestPoints ?? (type === "SIDE_QUEST" ? points : 0);
+      const sId = stationId ?? (type === "STATION" ? id : null);
+      const sqId = sideQuestId ?? (type === "SIDE_QUEST" ? id : null);
 
-      if (type === "STATION") {
+      // 1. HANDLE STATION
+      if (sPoints !== undefined && sPoints !== null && sPoints > 0 && sId) {
+        totalPointsToAdd += sPoints;
         updateData.completedStations =
-          admin.firestore.FieldValue.arrayUnion(id);
+          admin.firestore.FieldValue.arrayUnion(sId);
         updateData.status = "IDLE";
         updateData.destinationId = admin.firestore.FieldValue.delete();
         updateData.destinationEta = admin.firestore.FieldValue.delete();
-      } else {
-        updateData.completedSideQuests =
-          admin.firestore.FieldValue.arrayUnion(id);
+
+        const logRef = admin.firestore().collection("scoreLog").doc();
+        batch.set(logRef, {
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+          groupId,
+          stationId: sId,
+          points: sPoints,
+          type: "STATION",
+          awardedBy: request.auth.uid,
+          awardedByRole: callerRole,
+          note: adminNote || "",
+        });
       }
 
-      batch.update(groupRef, updateData);
+      // 2. HANDLE SIDE QUEST
+      if (sqPoints !== undefined && sqPoints !== null && sqPoints > 0 && sqId) {
+        totalPointsToAdd += sqPoints;
+        updateData.completedSideQuests =
+          admin.firestore.FieldValue.arrayUnion(sqId);
 
-      const logRef = admin.firestore().collection("scoreLog").doc();
-      batch.set(logRef, {
-        timestamp: admin.firestore.FieldValue.serverTimestamp(),
-        groupId,
-        points,
-        type,
-        sourceId: id,
-        awardedBy: request.auth.uid,
-        awardedByRole: callerRole,
-        note: adminNote || "",
-      });
+        const sqLogRef = admin.firestore().collection("scoreLog").doc();
+        batch.set(sqLogRef, {
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+          groupId,
+          sourceId: sqId,
+          points: sqPoints,
+          type: "SIDE_QUEST",
+          awardedBy: request.auth.uid,
+          awardedByRole: callerRole,
+        });
+      }
+
+      // 3. UPDATE TOTAL & TIME
+      if (totalPointsToAdd > 0) {
+        updateData.totalScore =
+          admin.firestore.FieldValue.increment(totalPointsToAdd);
+        updateData.lastScoreTimestamp =
+          admin.firestore.FieldValue.serverTimestamp();
+      }
+
+      if (Object.keys(updateData).length > 0) {
+        batch.update(groupRef, updateData);
+      }
 
       await batch.commit();
-      return { success: true, message: "Score submitted successfully." };
+      return { success: true, message: "Scores submitted." };
     } catch (error: any) {
-      console.error("Score submission error:", error);
+      console.error("Score error:", error);
       throw new HttpsError("internal", error.message);
     }
   }
 );
 
 // ===================================================================
-// 13. LEAVE STATION (FOR SMs)
+// 13. LEAVE STATION
 // ===================================================================
 export const leaveStation = onCall(async (request: CallableRequest<void>) => {
   if (!request.auth)
     throw new HttpsError("unauthenticated", "Must be logged in.");
-
   const userRef = admin.firestore().collection("users").doc(request.auth.uid);
   const userDoc = await userRef.get();
-
   if (userDoc.data()?.role !== "SM")
     throw new HttpsError(
       "permission-denied",
@@ -514,11 +511,10 @@ export const leaveStation = onCall(async (request: CallableRequest<void>) => {
     );
 
   try {
-    // We use FieldValue.delete() to completely remove the field
     await userRef.update({
       selectedStationId: admin.firestore.FieldValue.delete(),
     });
-    return { success: true, message: "Station un-selected." };
+    return { success: true };
   } catch (error: any) {
     throw new HttpsError("internal", error.message);
   }
@@ -539,18 +535,14 @@ export const createGroup = onCall(
     if (callerDoc.data()?.role !== "ADMIN")
       throw new HttpsError("permission-denied", "Admin only.");
 
-    const { name } = request.data;
-    if (!name) throw new HttpsError("invalid-argument", "Name is required.");
-
     try {
       const ref = admin.firestore().collection("groups").doc();
-      // Initialize with default game state
       await ref.set({
-        name,
-        status: "IDLE", // Default starting status
-        totalScore: 0, // Start with 0 points
-        completedStations: [], // No stations done yet
-        completedSideQuests: [], // No quests done yet
+        name: request.data.name,
+        status: "IDLE",
+        totalScore: 0,
+        completedStations: [],
+        completedSideQuests: [],
       });
       return { success: true, id: ref.id };
     } catch (error: any) {
@@ -591,7 +583,9 @@ export const deleteGroup = onCall(
 // 16. ASSIGN OGL TO GROUP
 // ===================================================================
 export const assignOglToGroup = onCall(
-  async (request: CallableRequest<{ userId: string; groupId: string }>) => {
+  async (
+    request: CallableRequest<{ userId: string; groupId: string | null }>
+  ) => {
     if (!request.auth)
       throw new HttpsError("unauthenticated", "Must be logged in.");
     const callerDoc = await admin
@@ -602,53 +596,22 @@ export const assignOglToGroup = onCall(
     if (callerDoc.data()?.role !== "ADMIN")
       throw new HttpsError("permission-denied", "Admin only.");
 
-    const { userId, groupId } = request.data;
-    // Allow passing null/empty groupId to "unassign" an OGL
-
     try {
-      const batch = admin.firestore().batch();
-
-      // 1. If we are assigning a new OGL, we might need to "unassign" the previous one for this group.
-      // (This is a bit complex to do perfectly atomically without more reads,
-      // so we'll trust the Admin UI to handle displaying it correctly for now).
-      // A simpler way: We just update THIS user.
-
-      const userRef = admin.firestore().collection("users").doc(userId);
-      if (groupId) {
-        batch.update(userRef, { groupId: groupId });
+      const userRef = admin
+        .firestore()
+        .collection("users")
+        .doc(request.data.userId);
+      if (request.data.groupId) {
+        await userRef.update({ groupId: request.data.groupId });
       } else {
-        // If groupId is empty, we are unassigning
-        batch.update(userRef, { groupId: admin.firestore.FieldValue.delete() });
+        await userRef.update({ groupId: admin.firestore.FieldValue.delete() });
       }
-
-      await batch.commit();
-      return { success: true, message: "OGL assigned." };
+      return { success: true };
     } catch (error: any) {
       throw new HttpsError("internal", error.message);
     }
   }
 );
-
-// ===================================================================
-// HELPER: GET OGL'S GROUP ID SECURELY
-// ===================================================================
-async function getCallerGroupId(uid: string): Promise<string> {
-  const userDoc = await admin.firestore().collection("users").doc(uid).get();
-  if (userDoc.data()?.role !== "OGL") {
-    throw new HttpsError(
-      "permission-denied",
-      "Only OGLs can perform this action."
-    );
-  }
-  const groupId = userDoc.data()?.groupId;
-  if (!groupId) {
-    throw new HttpsError(
-      "failed-precondition",
-      "You are not assigned to a group."
-    );
-  }
-  return groupId;
-}
 
 // ===================================================================
 // 17. OGL START TRAVEL
@@ -658,40 +621,40 @@ export const oglStartTravel = onCall(
     if (!request.auth)
       throw new HttpsError("unauthenticated", "Must be logged in.");
 
-    const groupId = await getCallerGroupId(request.auth.uid);
+    // Helper logic inlined for simplicity/safety in this full file replacement
+    const userDoc = await admin
+      .firestore()
+      .collection("users")
+      .doc(request.auth.uid)
+      .get();
+    if (userDoc.data()?.role !== "OGL")
+      throw new HttpsError("permission-denied", "Only OGLs.");
+    const groupId = userDoc.data()?.groupId;
+    if (!groupId)
+      throw new HttpsError("failed-precondition", "No group assigned.");
+
     const { stationId, eta } = request.data;
-
     if (!stationId || !eta)
-      throw new HttpsError("invalid-argument", "Missing destination or ETA.");
+      throw new HttpsError("invalid-argument", "Missing data.");
 
-    // Optional: Check if station is OPEN
     const stationDoc = await admin
       .firestore()
       .collection("stations")
       .doc(stationId)
       .get();
-    if (stationDoc.data()?.status !== "OPEN") {
-      throw new HttpsError(
-        "failed-precondition",
-        "Station is currently closed."
-      );
-    }
+    if (stationDoc.data()?.status !== "OPEN")
+      throw new HttpsError("failed-precondition", "Station closed.");
 
     try {
       const batch = admin.firestore().batch();
-
-      // 1. Update Group Status
       batch.update(admin.firestore().collection("groups").doc(groupId), {
         status: "TRAVELING",
         destinationId: stationId,
         destinationEta: eta,
       });
-
-      // 2. Increment Station's "Traveling" counter
       batch.update(admin.firestore().collection("stations").doc(stationId), {
         travelingCount: admin.firestore.FieldValue.increment(1),
       });
-
       await batch.commit();
       return { success: true };
     } catch (error: any) {
@@ -701,12 +664,19 @@ export const oglStartTravel = onCall(
 );
 
 // ===================================================================
-// 18. OGL ARRIVE AT STATION
+// 18. OGL ARRIVE
 // ===================================================================
 export const oglArrive = onCall(async (request: CallableRequest<void>) => {
   if (!request.auth)
     throw new HttpsError("unauthenticated", "Must be logged in.");
-  const groupId = await getCallerGroupId(request.auth.uid);
+  const userDoc = await admin
+    .firestore()
+    .collection("users")
+    .doc(request.auth.uid)
+    .get();
+  if (userDoc.data()?.role !== "OGL")
+    throw new HttpsError("permission-denied", "Only OGLs.");
+  const groupId = userDoc.data()?.groupId;
 
   const groupDoc = await admin
     .firestore()
@@ -714,19 +684,14 @@ export const oglArrive = onCall(async (request: CallableRequest<void>) => {
     .doc(groupId)
     .get();
   const currentDestination = groupDoc.data()?.destinationId;
-
   if (!currentDestination)
-    throw new HttpsError("failed-precondition", "You have no destination.");
+    throw new HttpsError("failed-precondition", "No destination.");
 
   try {
     const batch = admin.firestore().batch();
-
-    // 1. Update Group Status
     batch.update(admin.firestore().collection("groups").doc(groupId), {
       status: "ARRIVED",
     });
-
-    // 2. Move them from "Traveling" queue to "Arrived" queue
     const stationRef = admin
       .firestore()
       .collection("stations")
@@ -735,7 +700,6 @@ export const oglArrive = onCall(async (request: CallableRequest<void>) => {
       travelingCount: admin.firestore.FieldValue.increment(-1),
       arrivedCount: admin.firestore.FieldValue.increment(1),
     });
-
     await batch.commit();
     return { success: true };
   } catch (error: any) {
@@ -744,12 +708,19 @@ export const oglArrive = onCall(async (request: CallableRequest<void>) => {
 });
 
 // ===================================================================
-// 19. OGL DEPART (SKIP STATION)
+// 19. OGL DEPART
 // ===================================================================
 export const oglDepart = onCall(async (request: CallableRequest<void>) => {
   if (!request.auth)
     throw new HttpsError("unauthenticated", "Must be logged in.");
-  const groupId = await getCallerGroupId(request.auth.uid);
+  const userDoc = await admin
+    .firestore()
+    .collection("users")
+    .doc(request.auth.uid)
+    .get();
+  if (userDoc.data()?.role !== "OGL")
+    throw new HttpsError("permission-denied", "Only OGLs.");
+  const groupId = userDoc.data()?.groupId;
 
   const groupDoc = await admin
     .firestore()
@@ -760,8 +731,6 @@ export const oglDepart = onCall(async (request: CallableRequest<void>) => {
 
   try {
     const batch = admin.firestore().batch();
-
-    // 1. If they were at a station, remove them from the "Arrived" count
     if (groupDoc.data()?.status === "ARRIVED" && currentStationId) {
       batch.update(
         admin.firestore().collection("stations").doc(currentStationId),
@@ -770,14 +739,11 @@ export const oglDepart = onCall(async (request: CallableRequest<void>) => {
         }
       );
     }
-
-    // 2. Reset group to IDLE
     batch.update(admin.firestore().collection("groups").doc(groupId), {
       status: "IDLE",
       destinationId: admin.firestore.FieldValue.delete(),
       destinationEta: admin.firestore.FieldValue.delete(),
     });
-
     await batch.commit();
     return { success: true };
   } catch (error: any) {
@@ -791,7 +757,14 @@ export const oglDepart = onCall(async (request: CallableRequest<void>) => {
 export const oglToggleLunch = onCall(async (request: CallableRequest<void>) => {
   if (!request.auth)
     throw new HttpsError("unauthenticated", "Must be logged in.");
-  const groupId = await getCallerGroupId(request.auth.uid);
+  const userDoc = await admin
+    .firestore()
+    .collection("users")
+    .doc(request.auth.uid)
+    .get();
+  if (userDoc.data()?.role !== "OGL")
+    throw new HttpsError("permission-denied", "Only OGLs.");
+  const groupId = userDoc.data()?.groupId;
 
   const groupDoc = await admin
     .firestore()
@@ -806,10 +779,7 @@ export const oglToggleLunch = onCall(async (request: CallableRequest<void>) => {
     } else if (currentStatus === "IDLE") {
       await groupDoc.ref.update({ status: "ON_LUNCH" });
     } else {
-      throw new HttpsError(
-        "failed-precondition",
-        "Can only take lunch when IDLE."
-      );
+      throw new HttpsError("failed-precondition", "Can only lunch when IDLE.");
     }
     return { success: true };
   } catch (error: any) {
