@@ -637,3 +637,191 @@ export const assignOglToGroup = onCall(
     }
   }
 );
+
+// ===================================================================
+// HELPER: GET OGL'S GROUP ID SECURELY
+// ===================================================================
+async function getCallerGroupId(uid: string): Promise<string> {
+  const userDoc = await admin.firestore().collection("users").doc(uid).get();
+  if (userDoc.data()?.role !== "OGL") {
+    throw new HttpsError(
+      "permission-denied",
+      "Only OGLs can perform this action."
+    );
+  }
+  const groupId = userDoc.data()?.groupId;
+  if (!groupId) {
+    throw new HttpsError(
+      "failed-precondition",
+      "You are not assigned to a group."
+    );
+  }
+  return groupId;
+}
+
+// ===================================================================
+// 17. OGL START TRAVEL
+// ===================================================================
+export const oglStartTravel = onCall(
+  async (request: CallableRequest<{ stationId: string; eta: string }>) => {
+    if (!request.auth)
+      throw new HttpsError("unauthenticated", "Must be logged in.");
+
+    const groupId = await getCallerGroupId(request.auth.uid);
+    const { stationId, eta } = request.data;
+
+    if (!stationId || !eta)
+      throw new HttpsError("invalid-argument", "Missing destination or ETA.");
+
+    // Optional: Check if station is OPEN
+    const stationDoc = await admin
+      .firestore()
+      .collection("stations")
+      .doc(stationId)
+      .get();
+    if (stationDoc.data()?.status !== "OPEN") {
+      throw new HttpsError(
+        "failed-precondition",
+        "Station is currently closed."
+      );
+    }
+
+    try {
+      const batch = admin.firestore().batch();
+
+      // 1. Update Group Status
+      batch.update(admin.firestore().collection("groups").doc(groupId), {
+        status: "TRAVELING",
+        destinationId: stationId,
+        destinationEta: eta,
+      });
+
+      // 2. Increment Station's "Traveling" counter
+      batch.update(admin.firestore().collection("stations").doc(stationId), {
+        travelingCount: admin.firestore.FieldValue.increment(1),
+      });
+
+      await batch.commit();
+      return { success: true };
+    } catch (error: any) {
+      throw new HttpsError("internal", error.message);
+    }
+  }
+);
+
+// ===================================================================
+// 18. OGL ARRIVE AT STATION
+// ===================================================================
+export const oglArrive = onCall(async (request: CallableRequest<void>) => {
+  if (!request.auth)
+    throw new HttpsError("unauthenticated", "Must be logged in.");
+  const groupId = await getCallerGroupId(request.auth.uid);
+
+  const groupDoc = await admin
+    .firestore()
+    .collection("groups")
+    .doc(groupId)
+    .get();
+  const currentDestination = groupDoc.data()?.destinationId;
+
+  if (!currentDestination)
+    throw new HttpsError("failed-precondition", "You have no destination.");
+
+  try {
+    const batch = admin.firestore().batch();
+
+    // 1. Update Group Status
+    batch.update(admin.firestore().collection("groups").doc(groupId), {
+      status: "ARRIVED",
+    });
+
+    // 2. Move them from "Traveling" queue to "Arrived" queue
+    const stationRef = admin
+      .firestore()
+      .collection("stations")
+      .doc(currentDestination);
+    batch.update(stationRef, {
+      travelingCount: admin.firestore.FieldValue.increment(-1),
+      arrivedCount: admin.firestore.FieldValue.increment(1),
+    });
+
+    await batch.commit();
+    return { success: true };
+  } catch (error: any) {
+    throw new HttpsError("internal", error.message);
+  }
+});
+
+// ===================================================================
+// 19. OGL DEPART (SKIP STATION)
+// ===================================================================
+export const oglDepart = onCall(async (request: CallableRequest<void>) => {
+  if (!request.auth)
+    throw new HttpsError("unauthenticated", "Must be logged in.");
+  const groupId = await getCallerGroupId(request.auth.uid);
+
+  const groupDoc = await admin
+    .firestore()
+    .collection("groups")
+    .doc(groupId)
+    .get();
+  const currentStationId = groupDoc.data()?.destinationId;
+
+  try {
+    const batch = admin.firestore().batch();
+
+    // 1. If they were at a station, remove them from the "Arrived" count
+    if (groupDoc.data()?.status === "ARRIVED" && currentStationId) {
+      batch.update(
+        admin.firestore().collection("stations").doc(currentStationId),
+        {
+          arrivedCount: admin.firestore.FieldValue.increment(-1),
+        }
+      );
+    }
+
+    // 2. Reset group to IDLE
+    batch.update(admin.firestore().collection("groups").doc(groupId), {
+      status: "IDLE",
+      destinationId: admin.firestore.FieldValue.delete(),
+      destinationEta: admin.firestore.FieldValue.delete(),
+    });
+
+    await batch.commit();
+    return { success: true };
+  } catch (error: any) {
+    throw new HttpsError("internal", error.message);
+  }
+});
+
+// ===================================================================
+// 20. OGL TOGGLE LUNCH
+// ===================================================================
+export const oglToggleLunch = onCall(async (request: CallableRequest<void>) => {
+  if (!request.auth)
+    throw new HttpsError("unauthenticated", "Must be logged in.");
+  const groupId = await getCallerGroupId(request.auth.uid);
+
+  const groupDoc = await admin
+    .firestore()
+    .collection("groups")
+    .doc(groupId)
+    .get();
+  const currentStatus = groupDoc.data()?.status;
+
+  try {
+    if (currentStatus === "ON_LUNCH") {
+      await groupDoc.ref.update({ status: "IDLE" });
+    } else if (currentStatus === "IDLE") {
+      await groupDoc.ref.update({ status: "ON_LUNCH" });
+    } else {
+      throw new HttpsError(
+        "failed-precondition",
+        "Can only take lunch when IDLE."
+      );
+    }
+    return { success: true };
+  } catch (error: any) {
+    throw new HttpsError("internal", error.message);
+  }
+});
