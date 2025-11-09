@@ -120,8 +120,8 @@ const Header: React.FC = () => {
   } else if (profile?.role === "OGL") {
     roleLinks = [
       { type: "link", name: "My Dashboard", path: "/ogl" },
-      { type: "link", name: "My Journey", path: "/ogl/journey" }, // We need to create this page!
-      { type: "link", name: "Side Quests", path: "/ogl/sidequests" }, // And this one!
+      { type: "link", name: "My Journey", path: "/ogl/journey" },
+      { type: "link", name: "Side Quests", path: "/ogl/sidequests" },
     ];
   }
 
