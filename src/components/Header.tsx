@@ -98,8 +98,8 @@ const Header: React.FC = () => {
         type: "menu",
         name: "Admin Tools",
         items: [
-          { name: "Live Status (Mission Control)", path: "/admin/status" },
-          { name: "DIVIDER", path: "", isDivider: true },
+          // { name: "Live Status (Mission Control)", path: "/admin/status" },
+          // { name: "DIVIDER", path: "", isDivider: true },
           { name: "Manage Users", path: "/admin/users" },
           { name: "Manage Groups", path: "/admin/groups" },
           { name: "Manage Stations", path: "/admin/stations" },
