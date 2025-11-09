@@ -7,8 +7,6 @@ import { setGlobalOptions } from "firebase-functions/v2";
 import * as admin from "firebase-admin";
 
 admin.initializeApp();
-
-// --- CONFIGURE REGION ---
 setGlobalOptions({ region: "asia-southeast1" });
 
 // --- INTERFACES ---
@@ -36,15 +34,12 @@ interface SideQuestData {
   submissionType: "photo" | "video" | "none";
   isSmManaged: boolean;
 }
-// --- CORRECTED SCORE INTERFACE ---
 interface ScoreData {
   groupId: string;
   adminNote?: string;
-  // Optional: For legacy/single submissions
   type?: "STATION" | "SIDE_QUEST";
   id?: string;
   points?: number;
-  // Optional: For new unified submissions
   stationId?: string;
   stationPoints?: number;
   sideQuestId?: string;
@@ -380,40 +375,37 @@ export const updateStationStatus = onCall(
 );
 
 // ===================================================================
-// 12. SUBMIT SCORE (UNIFIED & SECURE)
+// 12. SUBMIT SCORE (FIXED: Updates Queue Count & Last Location)
 // ===================================================================
 export const submitScore = onCall(
   async (request: CallableRequest<ScoreData>) => {
     if (!request.auth)
       throw new HttpsError("unauthenticated", "Must be logged in.");
-
     const callerDoc = await admin
       .firestore()
       .collection("users")
       .doc(request.auth.uid)
       .get();
     const callerRole = callerDoc.data()?.role;
-    if (callerRole !== "SM" && callerRole !== "ADMIN" && callerRole !== "OGL") {
+    if (callerRole !== "SM" && callerRole !== "ADMIN" && callerRole !== "OGL")
       throw new HttpsError("permission-denied", "Unauthorized.");
-    }
 
     const {
       groupId,
-      points,
-      type,
-      id,
-      adminNote,
       stationId,
       stationPoints,
+      adminNote,
       sideQuestId,
       sideQuestPoints,
+      type,
+      id,
+      points,
     } = request.data;
 
-    // OGL SECURITY CHECK
+    // OGL Security Check
     if (callerRole === "OGL") {
       if (groupId !== callerDoc.data()?.groupId)
         throw new HttpsError("permission-denied", "Wrong group.");
-      // OGLs can ONLY submit side quests (either via 'type' OR 'sideQuestId')
       if (type === "STATION" || stationId)
         throw new HttpsError(
           "permission-denied",
@@ -429,20 +421,28 @@ export const submitScore = onCall(
       let totalPointsToAdd = 0;
       const updateData: any = {};
 
-      // NORMALIZE INPUTS (Handle both old and new styles)
       const sPoints = stationPoints ?? (type === "STATION" ? points : 0);
       const sqPoints = sideQuestPoints ?? (type === "SIDE_QUEST" ? points : 0);
       const sId = stationId ?? (type === "STATION" ? id : null);
       const sqId = sideQuestId ?? (type === "SIDE_QUEST" ? id : null);
 
-      // 1. HANDLE STATION
+      // 1. HANDLE STATION SCORING
       if (sPoints !== undefined && sPoints !== null && sPoints > 0 && sId) {
         totalPointsToAdd += sPoints;
         updateData.completedStations =
           admin.firestore.FieldValue.arrayUnion(sId);
         updateData.status = "IDLE";
+        // --- FIX 1: Save where they just were ---
+        updateData.lastStationId = sId;
+        // ---------------------------------------
         updateData.destinationId = admin.firestore.FieldValue.delete();
         updateData.destinationEta = admin.firestore.FieldValue.delete();
+
+        // --- FIX 2: Decrement the station's 'arrived' count! ---
+        batch.update(admin.firestore().collection("stations").doc(sId), {
+          arrivedCount: admin.firestore.FieldValue.increment(-1),
+        });
+        // -------------------------------------------------------
 
         const logRef = admin.firestore().collection("scoreLog").doc();
         batch.set(logRef, {
@@ -462,7 +462,6 @@ export const submitScore = onCall(
         totalPointsToAdd += sqPoints;
         updateData.completedSideQuests =
           admin.firestore.FieldValue.arrayUnion(sqId);
-
         const sqLogRef = admin.firestore().collection("scoreLog").doc();
         batch.set(sqLogRef, {
           timestamp: admin.firestore.FieldValue.serverTimestamp(),
@@ -475,7 +474,6 @@ export const submitScore = onCall(
         });
       }
 
-      // 3. UPDATE TOTAL & TIME
       if (totalPointsToAdd > 0) {
         updateData.totalScore =
           admin.firestore.FieldValue.increment(totalPointsToAdd);
@@ -708,11 +706,12 @@ export const oglArrive = onCall(async (request: CallableRequest<void>) => {
 });
 
 // ===================================================================
-// 19. OGL DEPART
+// 19. OGL DEPART (FIXED: Updates Last Location)
 // ===================================================================
 export const oglDepart = onCall(async (request: CallableRequest<void>) => {
   if (!request.auth)
     throw new HttpsError("unauthenticated", "Must be logged in.");
+  // ... (getCallerGroupId helper logic here if you didn't use the standalone function) ...
   const userDoc = await admin
     .firestore()
     .collection("users")
@@ -721,6 +720,7 @@ export const oglDepart = onCall(async (request: CallableRequest<void>) => {
   if (userDoc.data()?.role !== "OGL")
     throw new HttpsError("permission-denied", "Only OGLs.");
   const groupId = userDoc.data()?.groupId;
+  // ...
 
   const groupDoc = await admin
     .firestore()
@@ -741,6 +741,9 @@ export const oglDepart = onCall(async (request: CallableRequest<void>) => {
     }
     batch.update(admin.firestore().collection("groups").doc(groupId), {
       status: "IDLE",
+      // --- FIX 3: Save where they departed from ---
+      lastStationId: currentStationId,
+      // -------------------------------------------
       destinationId: admin.firestore.FieldValue.delete(),
       destinationEta: admin.firestore.FieldValue.delete(),
     });
@@ -782,6 +785,93 @@ export const oglToggleLunch = onCall(async (request: CallableRequest<void>) => {
       throw new HttpsError("failed-precondition", "Can only lunch when IDLE.");
     }
     return { success: true };
+  } catch (error: any) {
+    throw new HttpsError("internal", error.message);
+  }
+});
+
+// ===================================================================
+// 21. TOGGLE GAME STATUS (START / STOP)
+// ===================================================================
+export const toggleGameStatus = onCall(
+  async (request: CallableRequest<{ status: "RUNNING" | "STOPPED" }>) => {
+    if (!request.auth)
+      throw new HttpsError("unauthenticated", "Must be logged in.");
+    const callerDoc = await admin
+      .firestore()
+      .collection("users")
+      .doc(request.auth.uid)
+      .get();
+    if (callerDoc.data()?.role !== "ADMIN")
+      throw new HttpsError("permission-denied", "Admin only.");
+
+    try {
+      // We use 'merge: true' so we don't accidentally overwrite other future config settings
+      await admin.firestore().collection("game").doc("config").set(
+        {
+          status: request.data.status,
+        },
+        { merge: true }
+      );
+      return { success: true };
+    } catch (error: any) {
+      throw new HttpsError("internal", error.message);
+    }
+  }
+);
+
+// ===================================================================
+// 22. RESET GAME (DANGER ZONE - WIPES ALL PROGRESS)
+// ===================================================================
+export const resetGame = onCall(async (request: CallableRequest<void>) => {
+  if (!request.auth)
+    throw new HttpsError("unauthenticated", "Must be logged in.");
+  const callerDoc = await admin
+    .firestore()
+    .collection("users")
+    .doc(request.auth.uid)
+    .get();
+  if (callerDoc.data()?.role !== "ADMIN")
+    throw new HttpsError("permission-denied", "Admin only.");
+
+  try {
+    const batch = admin.firestore().batch();
+
+    // 1. Reset ALL Groups to 0
+    const groups = await admin.firestore().collection("groups").get();
+    groups.docs.forEach((doc) => {
+      batch.update(doc.ref, {
+        totalScore: 0,
+        status: "IDLE",
+        completedStations: [],
+        completedSideQuests: [],
+        // Remove all travel/location data
+        destinationId: admin.firestore.FieldValue.delete(),
+        destinationEta: admin.firestore.FieldValue.delete(),
+        lastStationId: admin.firestore.FieldValue.delete(),
+        lastScoreTimestamp: admin.firestore.FieldValue.delete(),
+      });
+    });
+
+    // 2. Reset ALL Station Counters to 0
+    const stations = await admin.firestore().collection("stations").get();
+    stations.docs.forEach((doc) => {
+      batch.update(doc.ref, { travelingCount: 0, arrivedCount: 0 });
+    });
+
+    // 3. Delete ALL Score Logs
+    const logs = await admin.firestore().collection("scoreLog").get();
+    logs.docs.forEach((doc) => {
+      batch.delete(doc.ref);
+    });
+
+    // NOTE: Firestore batches handle up to 500 operations.
+    // If you have more than 500 groups+stations+logs combined during testing,
+    // this might fail and need a more complex "chunked" delete.
+    // For now, this should be fine for testing.
+    await batch.commit();
+
+    return { success: true, message: "Game has been COMPLETELY reset." };
   } catch (error: any) {
     throw new HttpsError("internal", error.message);
   }

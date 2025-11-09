@@ -35,6 +35,7 @@ import LocationOnIcon from "@mui/icons-material/LocationOn";
 import DirectionsRunIcon from "@mui/icons-material/DirectionsRun";
 import RestaurantIcon from "@mui/icons-material/Restaurant";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import LockIcon from "@mui/icons-material/Lock";
 
 interface GroupData {
   name: string;
@@ -53,7 +54,8 @@ interface StationData {
 }
 
 export const OglJourney: FC = () => {
-  const { profile } = useAuth();
+  // --- GET gameStatus FROM CONTEXT ---
+  const { profile, gameStatus } = useAuth();
   const [groupData, setGroupData] = useState<GroupData | null>(null);
   const [stations, setStations] = useState<StationData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -129,6 +131,26 @@ export const OglJourney: FC = () => {
       </Box>
     );
   if (!groupData) return <Alert severity="error">Group data not found.</Alert>;
+
+  // --- NEW: BLOCK IF GAME IS STOPPED ---
+  if (gameStatus !== "RUNNING") {
+    return (
+      <Box sx={{ textAlign: "center", mt: 8, p: 4 }}>
+        <LockIcon
+          sx={{ fontSize: 80, color: "text.secondary", mb: 2, opacity: 0.5 }}
+        />
+        <Typography variant="h4" color="error" gutterBottom>
+          Game Paused
+        </Typography>
+        <Typography paragraph>
+          The game is currently stopped by the Game Master.
+        </Typography>
+        <Typography color="text.secondary">
+          Please wait for further instructions.
+        </Typography>
+      </Box>
+    );
+  }
 
   if (groupData.status === "TRAVELING") {
     const dest = stations.find((s) => s.id === groupData.destinationId);
@@ -257,7 +279,6 @@ export const OglJourney: FC = () => {
 
           return (
             <React.Fragment key={s.id}>
-              {/* --- UPDATED LIST ITEM FOR BETTER MOBILE LAYOUT --- */}
               <ListItem
                 sx={{
                   opacity: isDisabled ? 0.6 : 1,
@@ -267,7 +288,6 @@ export const OglJourney: FC = () => {
                   py: 1.5,
                 }}
               >
-                {/* LEFT SIDE: Avatar + Text (Allowed to shrink/wrap) */}
                 <Box
                   sx={{
                     display: "flex",
@@ -292,7 +312,6 @@ export const OglJourney: FC = () => {
                   </ListItemAvatar>
                   <ListItemText
                     primary={s.name}
-                    // We use a Box for secondary text so we can control wrapping better
                     secondary={
                       <Box component="span" sx={{ display: "block" }}>
                         <Typography
@@ -315,8 +334,6 @@ export const OglJourney: FC = () => {
                     }
                   />
                 </Box>
-
-                {/* RIGHT SIDE: Action (Fixed width, won't shrink) */}
                 <Box sx={{ minWidth: "fit-content" }}>
                   {isCompleted ? (
                     <Chip

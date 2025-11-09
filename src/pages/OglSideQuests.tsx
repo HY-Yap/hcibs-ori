@@ -36,6 +36,7 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import PhotoCameraIcon from "@mui/icons-material/PhotoCamera";
 import VideocamIcon from "@mui/icons-material/Videocam";
 import SportsEsportsIcon from "@mui/icons-material/SportsEsports";
+import LockIcon from "@mui/icons-material/Lock"; // <-- NEW IMPORT
 
 interface SideQuestData {
   id: string;
@@ -47,7 +48,8 @@ interface SideQuestData {
 }
 
 export const OglSideQuests: FC = () => {
-  const { profile } = useAuth();
+  // --- GET gameStatus ---
+  const { profile, gameStatus } = useAuth();
   const [quests, setQuests] = useState<SideQuestData[]>([]);
   const [completedQuests, setCompletedQuests] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -58,7 +60,6 @@ export const OglSideQuests: FC = () => {
   );
   const [dialogOpen, setDialogOpen] = useState(false);
 
-  // 1. Fetch ALL Side Quests (once on load)
   useEffect(() => {
     const fetchQuests = async () => {
       const q = query(collection(db, "sideQuests"), orderBy("name"));
@@ -70,7 +71,6 @@ export const OglSideQuests: FC = () => {
     fetchQuests();
   }, []);
 
-  // 2. Listen to MY GROUP (to see what we've completed)
   useEffect(() => {
     if (!profile?.groupId) return;
     const unsub = onSnapshot(doc(db, "groups", profile.groupId), (docSnap) => {
@@ -99,7 +99,6 @@ export const OglSideQuests: FC = () => {
         points: selectedQuest.points,
         type: "SIDE_QUEST",
         id: selectedQuest.id,
-        // fileUrl will go here later!
       });
 
       setDialogOpen(false);
@@ -117,6 +116,23 @@ export const OglSideQuests: FC = () => {
       </Box>
     );
 
+  // --- NEW: BLOCK IF GAME IS STOPPED ---
+  if (gameStatus !== "RUNNING") {
+    return (
+      <Box sx={{ textAlign: "center", mt: 8, p: 4 }}>
+        <LockIcon
+          sx={{ fontSize: 80, color: "text.secondary", mb: 2, opacity: 0.5 }}
+        />
+        <Typography variant="h4" color="error" gutterBottom>
+          Game Paused
+        </Typography>
+        <Typography paragraph>
+          Side quests are currently unavailable.
+        </Typography>
+      </Box>
+    );
+  }
+
   return (
     <Box sx={{ pb: 4 }}>
       <Typography variant="h4" gutterBottom>
@@ -130,8 +146,6 @@ export const OglSideQuests: FC = () => {
         <List disablePadding>
           {quests.map((quest, index) => {
             const isCompleted = completedQuests.includes(quest.id);
-
-            // Choose icon based on type
             let Icon = AssignmentIcon;
             if (quest.isSmManaged) Icon = SportsEsportsIcon;
             else if (quest.submissionType === "photo") Icon = PhotoCameraIcon;
@@ -141,7 +155,6 @@ export const OglSideQuests: FC = () => {
               <React.Fragment key={quest.id}>
                 {index > 0 && <Divider />}
                 <ListItem
-                  // Only clickable if NOT done and NOT SM-managed
                   onClick={() =>
                     !isCompleted &&
                     !quest.isSmManaged &&
@@ -159,7 +172,6 @@ export const OglSideQuests: FC = () => {
                     py: 2,
                   }}
                 >
-                  {/* LEFT: Icon & Text */}
                   <Box
                     sx={{
                       display: "flex",
@@ -184,7 +196,7 @@ export const OglSideQuests: FC = () => {
                     </ListItemAvatar>
                     <ListItemText
                       primary={quest.name}
-                      secondaryTypographyProps={{ noWrap: true }} // Prevents long descriptions from breaking layout
+                      secondaryTypographyProps={{ noWrap: true }}
                       secondary={
                         quest.isSmManaged
                           ? "Find a Station Master"
@@ -192,8 +204,6 @@ export const OglSideQuests: FC = () => {
                       }
                     />
                   </Box>
-
-                  {/* RIGHT: Status Chip (Fixed width so it doesn't shrink) */}
                   <Box sx={{ minWidth: "fit-content" }}>
                     {isCompleted ? (
                       <Chip label="Done" color="success" size="small" />
@@ -218,7 +228,6 @@ export const OglSideQuests: FC = () => {
         </List>
       </Paper>
 
-      {/* SUBMISSION DIALOG */}
       <Dialog
         open={dialogOpen}
         onClose={() => setDialogOpen(false)}

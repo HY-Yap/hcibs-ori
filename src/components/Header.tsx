@@ -25,8 +25,6 @@ import { useAuth } from "../context/AuthContext";
 import { signOut } from "firebase/auth";
 import { auth } from "../firebase";
 
-// --- DEFINE MENU STRUCTURE ---
-// 'type': 'link' is a direct button. 'menu' is a dropdown.
 type MenuItemType =
   | { type: "link"; name: string; path: string }
   | {
@@ -38,14 +36,13 @@ type MenuItemType =
 const Header: React.FC = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [isLoginOpen, setLoginOpen] = useState(false);
-  const { currentUser, profile } = useAuth();
+  // --- GET gameStatus FROM CONTEXT ---
+  const { currentUser, profile, gameStatus } = useAuth();
   const navigate = useNavigate();
 
-  // State for Desktop Dropdowns (anchor elements)
   const [menuAnchors, setMenuAnchors] = useState<{
     [key: string]: null | HTMLElement;
   }>({});
-  // State for Mobile Collapsible Menus (booleans)
   const [mobileMenuOpen, setMobileMenuOpen] = useState<{
     [key: string]: boolean;
   }>({});
@@ -63,7 +60,6 @@ const Header: React.FC = () => {
     }
   };
 
-  // --- DESKTOP MENU HANDLERS ---
   const handleDesktopMenuOpen = (
     event: MouseEvent<HTMLElement>,
     menuName: string
@@ -74,7 +70,6 @@ const Header: React.FC = () => {
     setMenuAnchors({ ...menuAnchors, [menuName]: null });
   };
 
-  // --- MOBILE MENU HANDLERS ---
   const handleMobileMenuToggle = (menuName: string) => {
     setMobileMenuOpen({
       ...mobileMenuOpen,
@@ -82,9 +77,6 @@ const Header: React.FC = () => {
     });
   };
 
-  // =========================================
-  // DEFINE NAVIGATION BASED ON ROLE
-  // =========================================
   const universalLinks: MenuItemType[] = [
     { type: "link", name: "Home", path: "/" },
     {
@@ -106,30 +98,38 @@ const Header: React.FC = () => {
         type: "menu",
         name: "Admin Tools",
         items: [
+          { name: "Live Status (Mission Control)", path: "/admin/status" },
+          { name: "DIVIDER", path: "", isDivider: true },
           { name: "Manage Users", path: "/admin/users" },
           { name: "Manage Groups", path: "/admin/groups" },
           { name: "Manage Stations", path: "/admin/stations" },
           { name: "Manage Side Quests", path: "/admin/sidequests" },
           { name: "DIVIDER", path: "", isDivider: true },
-          { name: "Game Controls (Coming Soon)", path: "#" },
+          { name: "Game Controls", path: "/admin/controls" },
         ],
       },
     ];
   } else if (profile?.role === "SM") {
     roleLinks = [{ type: "link", name: "My Station", path: "/sm" }];
   } else if (profile?.role === "OGL") {
-    roleLinks = [
-      { type: "link", name: "My Dashboard", path: "/ogl" },
-      { type: "link", name: "My Journey", path: "/ogl/journey" },
-      { type: "link", name: "Side Quests", path: "/ogl/sidequests" },
-    ];
+    roleLinks = [{ type: "link", name: "My Dashboard", path: "/ogl" }];
+    // --- ONLY SHOW THESE IF GAME IS RUNNING ---
+    if (gameStatus === "RUNNING") {
+      roleLinks.push({
+        type: "link",
+        name: "My Journey",
+        path: "/ogl/journey",
+      });
+      roleLinks.push({
+        type: "link",
+        name: "Side Quests",
+        path: "/ogl/sidequests",
+      });
+    }
   }
 
   const allLinks = [...universalLinks, ...roleLinks];
 
-  // =========================================
-  // RENDER MOBILE DRAWER
-  // =========================================
   const drawer = (
     <Box sx={{ textAlign: "center" }}>
       <Typography variant="h6" sx={{ my: 2 }} onClick={handleDrawerToggle}>
@@ -152,7 +152,6 @@ const Header: React.FC = () => {
               </ListItem>
             );
           } else {
-            // It's a collapsible menu
             const isOpen = mobileMenuOpen[item.name] || false;
             return (
               <Fragment key={item.name}>
@@ -191,7 +190,6 @@ const Header: React.FC = () => {
           }
         })}
         <Divider sx={{ my: 2 }} />
-        {/* Login/Logout Button at bottom of drawer */}
         <ListItem disablePadding>
           {currentUser ? (
             <ListItemButton
@@ -232,7 +230,7 @@ const Header: React.FC = () => {
             aria-label="open drawer"
             edge="start"
             onClick={handleDrawerToggle}
-            sx={{ mr: 2, display: { md: "none" } }} // Show on small screens
+            sx={{ mr: 2, display: { md: "none" } }}
           >
             <MenuIcon />
           </IconButton>
@@ -251,7 +249,6 @@ const Header: React.FC = () => {
             HCIBSO Amazing Race
           </Typography>
 
-          {/* DESKTOP NAV LINKS */}
           <Box
             sx={{
               display: { xs: "none", md: "flex" },
@@ -272,7 +269,6 @@ const Header: React.FC = () => {
                   </Button>
                 );
               } else {
-                // It's a dropdown menu
                 return (
                   <Fragment key={item.name}>
                     <Button
@@ -307,7 +303,6 @@ const Header: React.FC = () => {
               }
             })}
 
-            {/* Desktop Login/Logout */}
             {currentUser ? (
               <Button
                 color="inherit"
@@ -329,7 +324,6 @@ const Header: React.FC = () => {
         </Toolbar>
       </AppBar>
 
-      {/* Mobile Drawer */}
       <Drawer
         variant="temporary"
         open={mobileOpen}

@@ -2,20 +2,20 @@ import React, { createContext, useContext, useState, useEffect } from "react";
 import type { ReactNode } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import type { User } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, onSnapshot } from "firebase/firestore"; // <-- Changed getDoc to onSnapshot for real-time updates
 import { auth, db } from "../firebase";
 
-// 1. UPDATE INTERFACE to include groupId
 interface UserProfile {
   role: "ADMIN" | "SM" | "OGL" | null;
   displayName: string;
-  groupId?: string; // <-- NEW! Optional, because Admins/SMs won't have one
+  groupId?: string;
 }
 
 interface AuthContextType {
   currentUser: User | null;
   profile: UserProfile | null;
   loading: boolean;
+  gameStatus: "RUNNING" | "STOPPED" | null; // <-- NEW GLOBAL STATE
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -26,44 +26,49 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [gameStatus, setGameStatus] = useState<"RUNNING" | "STOPPED" | null>(
+    null
+  ); // <-- NEW STATE
 
+  // 1. Listen to Authentication & User Profile
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      try {
-        if (user) {
-          setCurrentUser(user);
-          const userDocRef = doc(db, "users", user.uid);
-          const userDocSnap = await getDoc(userDocRef);
-
-          if (userDocSnap.exists()) {
-            const userData = userDocSnap.data();
-            // 2. SAVE groupId TO STATE
-            setProfile({
-              role: userData.role || null,
-              displayName: userData.displayName || "User",
-              groupId: userData.groupId || undefined, // <-- NEW!
-            });
-          } else {
-            console.error("No user profile found in Firestore!");
-            setProfile(null);
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        setCurrentUser(user);
+        // Use onSnapshot here too so roles update live if changed by Admin!
+        return onSnapshot(doc(db, "users", user.uid), (docSnap) => {
+          if (docSnap.exists()) {
+            setProfile(docSnap.data() as UserProfile);
           }
-        } else {
-          setCurrentUser(null);
-          setProfile(null);
-        }
-      } catch (error) {
-        console.error("Error in AuthContext:", error);
+          setLoading(false);
+        });
+      } else {
         setCurrentUser(null);
         setProfile(null);
-      } finally {
         setLoading(false);
       }
     });
-
     return () => unsubscribe();
   }, []);
 
-  const value = { currentUser, profile, loading };
+  // 2. NEW! Listen to global Game Status
+  useEffect(() => {
+    const unsub = onSnapshot(
+      doc(db, "game", "config"),
+      (docSnap) => {
+        if (docSnap.exists()) {
+          setGameStatus(docSnap.data().status);
+        } else {
+          setGameStatus("STOPPED"); // Default safe state
+        }
+      },
+      (err) => console.error("Game status listener failed:", err)
+    );
+
+    return () => unsub();
+  }, []);
+
+  const value = { currentUser, profile, loading, gameStatus };
 
   return (
     <AuthContext.Provider value={value}>
@@ -74,8 +79,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (context === undefined) {
+  if (context === undefined)
     throw new Error("useAuth must be used within an AuthProvider");
-  }
   return context;
 };
