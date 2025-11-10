@@ -876,3 +876,28 @@ export const resetGame = onCall(async (request: CallableRequest<void>) => {
     throw new HttpsError("internal", error.message);
   }
 });
+
+// ===================================================================
+// 23. MAKE ANNOUNCEMENT (ADMIN ONLY)
+// ===================================================================
+export const makeAnnouncement = onCall(
+  async (request: CallableRequest<{ message: string }>) => {
+    
+  if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
+  const callerDoc = await admin.firestore().collection("users").doc(request.auth.uid).get();
+  if (callerDoc.data()?.role !== "ADMIN") throw new HttpsError("permission-denied", "Admin only.");
+
+  const { message } = request.data;
+  if (!message) throw new HttpsError("invalid-argument", "Message is required.");
+
+  try {
+    await admin.firestore().collection("announcements").add({
+      message,
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      createdBy: request.auth.uid
+    });
+    return { success: true };
+  } catch (error: any) {
+    throw new HttpsError("internal", error.message);
+  }
+});
