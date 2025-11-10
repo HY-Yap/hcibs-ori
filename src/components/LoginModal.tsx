@@ -2,6 +2,8 @@ import React, { useState } from "react";
 import { Modal, Box, Typography, TextField, Button } from "@mui/material";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "../firebase"; // We only need auth
+import { db } from "../firebase";
+import { collection, query, where, limit, getDocs } from "firebase/firestore";
 
 const style = {
   position: "absolute" as "absolute",
@@ -39,21 +41,42 @@ export const LoginModal: React.FC<LoginModalProps> = ({ open, onClose }) => {
   const handleLogin = async () => {
     setError("");
 
-    let email = emailOrUsername;
-    // (We'll add the SM-01 logic here later, for now just use email)
-    if (!email.includes("@")) {
-      setError("Please enter a valid email address.");
-      return;
-    }
-
+    let email = emailOrUsername.trim();
     try {
-      // 1. Sign in the user
-      await signInWithEmailAndPassword(auth, email, password);
+      // If user typed a username (no @), look up their email in Firestore
+      if (!email.includes("@")) {
+        const q = query(
+          collection(db, "users"),
+          where("username", "==", email),
+          limit(1)
+        );
+        const snap = await getDocs(q);
+        if (snap.empty) {
+          setError("No account found for that username.");
+          return;
+        }
+        const userData = snap.docs[0].data() as any;
+        // try common email fields
+        email = userData.email || userData.emailAddress || userData.authEmail;
+        if (!email) {
+          setError("Found user but no email is associated with that username.");
+          return;
+        }
+      }
 
-      // 2. That's it! Just close the modal.
-      handleClose();
-      // The AuthContext will automatically see the login
-      // and update the Header for us.
+      try {
+        // 1. Sign in the user
+        await signInWithEmailAndPassword(auth, email, password);
+
+        // 2. That's it! Just close the modal.
+        handleClose();
+        // The AuthContext will automatically see the login
+        // and update the Header for us.
+      } catch (err) {
+        console.error(err);
+        // show firebase error if available, otherwise generic
+        setError((err as any)?.message || "Failed to login. Please check your credentials.");
+      }
     } catch (err) {
       console.error(err);
       setError("Failed to login. Please check your email and password.");
@@ -72,7 +95,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ open, onClose }) => {
         </Typography>
 
         <TextField
-          label="Email"
+          label="Email or Username"
           variant="outlined"
           fullWidth
           value={emailOrUsername}
