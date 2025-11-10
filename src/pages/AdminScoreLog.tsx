@@ -31,7 +31,7 @@ interface LogData {
   groupId: string;
   points: number;
   type: "STATION" | "SIDE_QUEST";
-  sourceId?: string;
+  sourceId: string;
   note?: string;
   awardedBy?: string;
   awardedByRole?: string;
@@ -57,17 +57,23 @@ export const AdminScoreLog: FC = () => {
     setLoading(true);
     const unsubLogs = onSnapshot(
       query(collection(db, "scoreLog"), orderBy("timestamp", "desc")),
-      (snap) =>
-        setLogs(
-          snap.docs.map((d) => {
-            const data = d.data() as any;
-            // Use stationId only (no multi-name checks). Log the used field/value.
-            const sourceId = data.stationId;
-            console.log(`scoreLog ${d.id}: using stationId -> ${sourceId}`);
-            return { id: d.id, ...data, sourceId } as LogData;
-          })
-        )
+      (snap) => {
+        const logList = snap.docs.map((d) => {
+          const data = d.data();
+          // --- THE FIX: Check BOTH possible field names ---
+          // Side Quests use 'sourceId', Stations use 'stationId'
+          const finalSourceId = data.sourceId || data.stationId || "unknown";
+
+          return {
+            id: d.id,
+            ...data,
+            sourceId: finalSourceId,
+          } as LogData;
+        });
+        setLogs(logList);
+      }
     );
+
     const unsubGroups = onSnapshot(collection(db, "groups"), (snap) => {
       const map: Record<string, string> = {};
       snap.forEach((doc) => {
@@ -273,17 +279,19 @@ export const AdminScoreLog: FC = () => {
             <TableRow
               sx={{ "& th": { fontWeight: "bold", bgcolor: "#f5f5f5" } }}
             >
-              <TableCell sx={{ width: 90, minWidth: 90 }}>Time</TableCell>
-              <TableCell sx={{ width: 110, minWidth: 110 }}>Group</TableCell>
+              {/* --- OPTIMIZED COLUMN WIDTHS --- */}
+              <TableCell sx={{ width: 85, minWidth: 85 }}>Time</TableCell>
+              <TableCell sx={{ width: 100, minWidth: 100 }}>Group</TableCell>
               <TableCell sx={{ width: 140, minWidth: 140 }}>Source</TableCell>
-              <TableCell sx={{ width: 80 }}>Type</TableCell>
+              <TableCell sx={{ width: 70 }}>Type</TableCell>
               <TableCell align="right" sx={{ width: 70 }}>
                 Pts
               </TableCell>
-              <TableCell sx={{ width: 150, minWidth: 150 }}>
+              <TableCell sx={{ width: "auto" }}>Note</TableCell>{" "}
+              {/* Takes all remaining space */}
+              <TableCell sx={{ width: 140, minWidth: 140 }}>
                 Awarded By
               </TableCell>
-              <TableCell sx={{ width: "auto" }}>Note</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -306,19 +314,24 @@ export const AdminScoreLog: FC = () => {
                         fontSize: "0.8rem",
                       }}
                     >
-                      {log.timestamp?.toDate().toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
+                      {log.timestamp
+                        ?.toDate()
+                        .toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
                     </TableCell>
                     <TableCell
                       sx={{ fontWeight: "medium", fontSize: "0.85rem" }}
                     >
                       {groupMap[log.groupId] || "Unknown"}
                     </TableCell>
+
+                    {/* --- SOURCE NAME (Now reliably populated) --- */}
                     <TableCell sx={{ fontSize: "0.85rem" }}>
-                      {allSourcesMap[log.sourceId || ""] || log.sourceId || "-"}
+                      {allSourcesMap[log.sourceId] || log.sourceId || "-"}
                     </TableCell>
+
                     <TableCell>
                       <Chip
                         label={log.type === "STATION" ? "Stn" : "Quest"}
@@ -340,16 +353,8 @@ export const AdminScoreLog: FC = () => {
                         }}
                       />
                     </TableCell>
-                    <TableCell sx={{ fontSize: "0.8rem" }}>
-                      <Box sx={{ display: "flex", flexDirection: "column" }}>
-                        <span style={{ fontWeight: 500 }}>{awardedByName}</span>
-                        {userMap[log.awardedBy || ""] && log.awardedByRole ? (
-                          <Typography variant="caption" color="text.secondary">
-                            ({log.awardedByRole})
-                          </Typography>
-                        ) : null}
-                      </Box>
-                    </TableCell>
+
+                    {/* --- NOTE COLUMN (Expands and wraps) --- */}
                     <TableCell
                       sx={{
                         color: log.note ? "text.primary" : "text.secondary",
@@ -361,6 +366,17 @@ export const AdminScoreLog: FC = () => {
                       }}
                     >
                       {log.note || "-"}
+                    </TableCell>
+
+                    <TableCell sx={{ fontSize: "0.8rem" }}>
+                      <Box sx={{ display: "flex", flexDirection: "column" }}>
+                        <span style={{ fontWeight: 500 }}>{awardedByName}</span>
+                        {userMap[log.awardedBy || ""] && log.awardedByRole ? (
+                          <Typography variant="caption" color="text.secondary">
+                            ({log.awardedByRole})
+                          </Typography>
+                        ) : null}
+                      </Box>
                     </TableCell>
                   </TableRow>
                 );
