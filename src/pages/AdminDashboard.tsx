@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import type { FC } from "react";
 import {
   Box,
@@ -196,7 +196,7 @@ export const AdminDashboard: FC = () => {
       <Paper sx={{ mb: 2 }}>
         <Tabs
           value={tabValue}
-          onChange={(e, newValue) => setTabValue(newValue)}
+          onChange={(_event, newValue) => setTabValue(newValue)}
           indicatorColor="primary"
           textColor="primary"
           variant="fullWidth"

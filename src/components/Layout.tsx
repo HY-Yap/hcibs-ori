@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import type { FC } from "react";
 import { Outlet } from "react-router-dom";
 import { Header } from "./Header";

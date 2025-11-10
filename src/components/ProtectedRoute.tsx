@@ -1,4 +1,3 @@
-import React from "react";
 import type { FC } from "react"; // Import FC as a type for React.FC
 import { Navigate, Outlet } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";

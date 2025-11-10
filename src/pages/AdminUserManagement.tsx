@@ -26,7 +26,6 @@ import {
   InputLabel,
   Select,
   TableSortLabel,
-  Divider, // <-- NEW IMPORT
 } from "@mui/material";
 import { collection, getDocs } from "firebase/firestore";
 import { getFunctions, httpsCallable } from "firebase/functions";

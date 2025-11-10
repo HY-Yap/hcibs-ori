@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import type { FC } from "react";
 import {
   Dialog,
@@ -17,7 +17,6 @@ import {
   CircularProgress,
   Alert,
   Typography,
-  Divider,
 } from "@mui/material";
 import { getFunctions, httpsCallable } from "firebase/functions";
 import { collection, getDocs, query, where } from "firebase/firestore";

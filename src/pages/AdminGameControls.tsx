@@ -1,11 +1,10 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import type { FC } from "react";
 import {
   Box,
   Typography,
   Paper,
   Button,
-  Alert,
   CircularProgress,
   Dialog,
   DialogTitle,

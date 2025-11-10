@@ -14,7 +14,6 @@ import {
   Alert,
   Chip,
   useTheme,
-  Link,
 } from "@mui/material";
 import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
 import { db } from "../firebase";

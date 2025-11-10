@@ -89,7 +89,7 @@ export const SmDashboard: React.FC = () => {
     const unsub = onSnapshot(
       doc(db, "stations", stationId),
       (d) => setStationData({ id: d.id, ...d.data() } as StationData),
-      (e) => setError("Lost connection to station.")
+      () => setError("Lost connection to station.")
     );
     return () => unsub();
   }, [stationId]);

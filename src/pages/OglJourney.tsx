@@ -60,7 +60,7 @@ export const OglJourney: FC = () => {
   const [stations, setStations] = useState<StationData[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error] = useState<string | null>(null);
 
   const [travelDialogOpen, setTravelDialogOpen] = useState(false);
   const [selectedStation, setSelectedStation] = useState<StationData | null>(
@@ -131,6 +131,12 @@ export const OglJourney: FC = () => {
       </Box>
     );
   if (!groupData) return <Alert severity="error">Group data not found.</Alert>;
+  if (error)
+    return (
+      <Alert severity="error" sx={{ mt: 4 }}>
+        {error}
+      </Alert>
+    );
 
   // --- NEW: BLOCK IF GAME IS STOPPED ---
   if (gameStatus !== "RUNNING") {

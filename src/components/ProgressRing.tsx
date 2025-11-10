@@ -1,4 +1,3 @@
-import React from "react";
 import type { FC } from "react";
 import { Box, useTheme } from "@mui/material";
 import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
@@ -40,7 +39,7 @@ export const ProgressRing: FC<ProgressRingProps> = ({
             dataKey="value"
             stroke="none"
           >
-            {data.map((entry, index) => (
+            {data.map((_, index) => (
               <Cell
                 key={`cell-${index}`}
                 fill={COLORS[index % COLORS.length]}
