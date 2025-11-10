@@ -17,6 +17,7 @@ import { OglJourney } from "./pages/OglJourney";
 import { OglSideQuests } from "./pages/OglSideQuests";
 import { AdminGameControls } from "./pages/AdminGameControls";
 import { AdminScoreLog } from "./pages/AdminScoreLog";
+import { ProfilePage } from "./pages/Profile";
 
 // Import all our components
 import { Layout } from "./components/Layout";
@@ -37,6 +38,13 @@ function App() {
           <Route path="leaderboard" element={<LeaderboardPage />} />
           <Route path="stations" element={<StationsPage />} />
           <Route path="sidequests" element={<SideQuestsPage />} />
+
+          {/* Protected profile route for logged-in roles (ADMIN, SM, OGL) */}
+          <Route
+            element={<ProtectedRoute allowedRoles={["ADMIN", "SM", "OGL"]} />}
+          >
+            <Route path="profile" element={<ProfilePage />} />
+          </Route>
 
           {/* ADMIN ROUTES (protected) */}
           <Route element={<ProtectedRoute allowedRoles={["ADMIN"]} />}>
