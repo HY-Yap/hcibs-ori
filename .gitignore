@@ -11,6 +11,7 @@ node_modules
 dist
 dist-ssr
 *.local
+/src/firebase.*   # ignore firebase file with any extension in repo/src
 
 # Editor directories and files
 .vscode/*
