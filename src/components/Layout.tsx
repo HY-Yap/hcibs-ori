@@ -19,6 +19,9 @@ export const Layout: FC = () => {
   const [toastMessage, setToastMessage] = useState("");
   const [lastMessageId, setLastMessageId] = useState<string | null>(null);
 
+  // --- NEW: Track when this user loaded the app ---
+  const [loadTime] = useState(() => new Date());
+
   useEffect(() => {
     if (!currentUser) return;
 
@@ -32,8 +35,18 @@ export const Layout: FC = () => {
       if (!snapshot.empty) {
         const latestDoc = snapshot.docs[0];
         const latestData = latestDoc.data();
+        const msgTime = latestData.timestamp?.toDate();
 
-        if (lastMessageId && latestDoc.id !== lastMessageId) {
+        // --- UPDATED CHECK ---
+        // Only show toast if:
+        // 1. It's a different message than the last one we saw
+        // 2. AND it was created AFTER we loaded the app (filters out old messages on reset)
+        if (
+          lastMessageId &&
+          latestDoc.id !== lastMessageId &&
+          msgTime &&
+          msgTime > loadTime
+        ) {
           setToastMessage(latestData.message);
           setToastOpen(true);
         }
@@ -42,7 +55,7 @@ export const Layout: FC = () => {
     });
 
     return () => unsubscribe();
-  }, [currentUser, lastMessageId]);
+  }, [currentUser, lastMessageId, loadTime]);
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
@@ -69,15 +82,13 @@ export const Layout: FC = () => {
             width: "100%",
             boxShadow: 3,
             fontWeight: "bold",
-            // --- FIX FOR LONG TEXT / NEWLINES ---
             "& .MuiAlert-message": {
               whiteSpace: "pre-wrap",
               wordBreak: "break-word",
-              maxWidth: "600px", // Optional: keeps extremely long toasts from getting too wide on big screens
+              maxWidth: "600px",
             },
           }}
         >
-          {/* We use a span to separate the label from the message clearly */}
           <span>📢 NEW ANNOUNCEMENT:</span>
           <br />
           <Typography

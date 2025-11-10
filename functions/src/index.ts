@@ -845,7 +845,6 @@ export const resetGame = onCall(async (request: CallableRequest<void>) => {
         status: "IDLE",
         completedStations: [],
         completedSideQuests: [],
-        // Remove all travel/location data
         destinationId: admin.firestore.FieldValue.delete(),
         destinationEta: admin.firestore.FieldValue.delete(),
         lastStationId: admin.firestore.FieldValue.delete(),
@@ -865,10 +864,15 @@ export const resetGame = onCall(async (request: CallableRequest<void>) => {
       batch.delete(doc.ref);
     });
 
-    // NOTE: Firestore batches handle up to 500 operations.
-    // If you have more than 500 groups+stations+logs combined during testing,
-    // this might fail and need a more complex "chunked" delete.
-    // For now, this should be fine for testing.
+    // 4. NEW! Delete ALL Announcements
+    const announcements = await admin
+      .firestore()
+      .collection("announcements")
+      .get();
+    announcements.docs.forEach((doc) => {
+      batch.delete(doc.ref);
+    });
+
     await batch.commit();
 
     return { success: true, message: "Game has been COMPLETELY reset." };
@@ -882,22 +886,29 @@ export const resetGame = onCall(async (request: CallableRequest<void>) => {
 // ===================================================================
 export const makeAnnouncement = onCall(
   async (request: CallableRequest<{ message: string }>) => {
-    
-  if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
-  const callerDoc = await admin.firestore().collection("users").doc(request.auth.uid).get();
-  if (callerDoc.data()?.role !== "ADMIN") throw new HttpsError("permission-denied", "Admin only.");
+    if (!request.auth)
+      throw new HttpsError("unauthenticated", "Must be logged in.");
+    const callerDoc = await admin
+      .firestore()
+      .collection("users")
+      .doc(request.auth.uid)
+      .get();
+    if (callerDoc.data()?.role !== "ADMIN")
+      throw new HttpsError("permission-denied", "Admin only.");
 
-  const { message } = request.data;
-  if (!message) throw new HttpsError("invalid-argument", "Message is required.");
+    const { message } = request.data;
+    if (!message)
+      throw new HttpsError("invalid-argument", "Message is required.");
 
-  try {
-    await admin.firestore().collection("announcements").add({
-      message,
-      timestamp: admin.firestore.FieldValue.serverTimestamp(),
-      createdBy: request.auth.uid
-    });
-    return { success: true };
-  } catch (error: any) {
-    throw new HttpsError("internal", error.message);
+    try {
+      await admin.firestore().collection("announcements").add({
+        message,
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        createdBy: request.auth.uid,
+      });
+      return { success: true };
+    } catch (error: any) {
+      throw new HttpsError("internal", error.message);
+    }
   }
-});
+);
