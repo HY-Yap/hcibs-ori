@@ -129,6 +129,10 @@ const Header: React.FC = () => {
     }
   }
 
+  // NEW: ensure "My Profile" appears in the menu for logged-in SM / OGL / ADMIN
+  if (profile?.role && ["SM", "OGL", "ADMIN"].includes(profile.role)) {
+    roleLinks.unshift({ type: "link", name: "My Profile", path: "/profile" });
+  }
   const allLinks = [...universalLinks, ...roleLinks];
 
   const drawer = (
