@@ -121,7 +121,8 @@ export const SmDashboard: React.FC = () => {
       await fn({ stationId, newStatus });
       setConfirmOpen(false);
     } catch (err: any) {
-      alert(err.message);
+      // show error in UI rather than alert
+      setError(err?.message || "Failed to change station status.");
     } finally {
       setActionLoading(false);
     }
@@ -143,6 +144,12 @@ export const SmDashboard: React.FC = () => {
     }
   };
 
+  // Reopen station when SM clicks "WE ARE BACK" by reusing updateStationStatus
+  const handleToggleLunch = async () => {
+    // delegate to handleStatusChange to keep actionLoading / error behavior consistent
+    await handleStatusChange("OPEN");
+  };
+
   if (loading)
     return (
       <Box sx={{ display: "flex", justifyContent: "center", mt: 4 }}>
@@ -152,6 +159,43 @@ export const SmDashboard: React.FC = () => {
   if (!stationId)
     return (
       <StationSelector onStationSelected={() => window.location.reload()} />
+    );
+
+  // New: stationData can be null while the realtime snapshot arrives.
+  // Show a small spinner until we have stationData to avoid "object is possibly null" errors.
+  if (!stationData)
+    return (
+      <Box sx={{ display: "flex", justifyContent: "center", mt: 4 }}>
+        <CircularProgress />
+      </Box>
+    );
+
+  // stationData is now guaranteed non-null below; use a local const to avoid
+  // repeated optional-chaining and TypeScript narrowing issues.
+  const status = stationData.status;
+
+  if (stationData.status === "CLOSED_LUNCH")
+    return (
+      <Box sx={{ textAlign: "center", mt: 8, p: 2 }}>
+        <RestaurantIcon sx={{ fontSize: 80, color: "warning.main", mb: 2 }} />
+        <Typography variant="h4" gutterBottom>
+          On Lunch Break
+        </Typography>
+        <Typography paragraph>
+          Enjoy your meal! Click below when you are ready to resume.
+        </Typography>
+        <Button
+          variant="contained"
+          color="primary"
+          size="large"
+          fullWidth
+          sx={{ py: 2, mt: 4 }}
+          disabled={actionLoading}
+          onClick={handleToggleLunch}
+        >
+          WE ARE BACK
+        </Button>
+      </Box>
     );
 
   return (
@@ -188,14 +232,14 @@ export const SmDashboard: React.FC = () => {
           <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
             <Typography variant="subtitle1">Status:</Typography>
             <Chip
-              label={(stationData?.status || "OPEN").replace("_", " ")}
-              color={stationData?.status === "OPEN" ? "success" : "error"}
+              label={(status || "OPEN").replace("_", " ")}
+              color={status === "OPEN" ? "success" : "error"}
               sx={{ fontWeight: "bold" }}
             />
           </Box>
         </Box>
         <Box sx={{ display: "flex", gap: 1 }}>
-          {stationData?.status === "OPEN" ? (
+          {status === "OPEN" ? (
             <Button
               variant="contained"
               color="warning"
@@ -208,7 +252,7 @@ export const SmDashboard: React.FC = () => {
             >
               Lunch
             </Button>
-          ) : stationData?.status === "CLOSED_LUNCH" ? (
+          ) : status === "CLOSED_LUNCH" ? (
             <Button
               variant="contained"
               color="success"
@@ -219,7 +263,7 @@ export const SmDashboard: React.FC = () => {
               Re-open
             </Button>
           ) : null}
-          {stationData?.status !== "CLOSED_PERMANENTLY" && (
+          {status !== "CLOSED_PERMANENTLY" && (
             <Button
               variant="outlined"
               color="error"
@@ -367,12 +411,16 @@ export const SmDashboard: React.FC = () => {
         </DialogActions>
       </Dialog>
 
-      <SmActionModal
-        open={actionModalOpen}
-        onClose={() => setActionModalOpen(false)}
-        group={selectedGroup}
-        stationId={stationId}
-      />
+      {/* Only mount SmActionModal when we have required props to avoid TS/runtime errors */}
+      {selectedGroup && stationId && (
+        <SmActionModal
+          open={actionModalOpen}
+          onClose={() => setActionModalOpen(false)}
+          group={selectedGroup}
+          stationId={stationId}
+        />
+      )}
     </Box>
   );
 };
+export default SmDashboard;
