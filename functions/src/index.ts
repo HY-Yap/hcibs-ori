@@ -1,13 +1,13 @@
-import {
-  onCall,
-  HttpsError,
-  CallableRequest,
-} from "firebase-functions/v2/https";
+import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { setGlobalOptions } from "firebase-functions/v2";
 import * as admin from "firebase-admin";
 
-admin.initializeApp();
+// Set region for all v2 functions (asia-southeast1)
 setGlobalOptions({ region: "asia-southeast1" });
+
+type CallableRequest<T> = any;
+
+admin.initializeApp();
 
 // --- INTERFACES ---
 interface CreateUserData {
@@ -45,6 +45,9 @@ interface ScoreData {
   sideQuestId?: string;
   sideQuestPoints?: number;
 }
+
+// add a local alias for readability using the admin SDK types
+type QDoc = admin.firestore.QueryDocumentSnapshot;
 
 // ===================================================================
 // 1. CREATE USER
@@ -350,9 +353,12 @@ export const updateStationStatus = onCall(
       .collection("users")
       .doc(request.auth.uid)
       .get();
-    if (callerDoc.data()?.role !== "SM")
-      throw new HttpsError("permission-denied", "Only SMs can update status.");
-    if (callerDoc.data()?.selectedStationId !== request.data.stationId) {
+    const role = callerDoc.data()?.role;
+    if (role !== "SM" && role !== "ADMIN")
+      throw new HttpsError("permission-denied", "Unauthorized to update station status.");
+
+    // Only require selectedStationId for SM role; admins may manage any station
+    if (role === "SM" && callerDoc.data()?.selectedStationId !== request.data.stationId) {
       throw new HttpsError(
         "permission-denied",
         "You can only manage your selected station."
@@ -839,7 +845,7 @@ export const resetGame = onCall(async (request: CallableRequest<void>) => {
 
     // 1. Reset ALL Groups to 0
     const groups = await admin.firestore().collection("groups").get();
-    groups.docs.forEach((doc) => {
+    groups.docs.forEach((doc: QDoc) => {
       batch.update(doc.ref, {
         totalScore: 0,
         status: "IDLE",
@@ -854,13 +860,13 @@ export const resetGame = onCall(async (request: CallableRequest<void>) => {
 
     // 2. Reset ALL Station Counters to 0
     const stations = await admin.firestore().collection("stations").get();
-    stations.docs.forEach((doc) => {
+    stations.docs.forEach((doc: QDoc) => {
       batch.update(doc.ref, { travelingCount: 0, arrivedCount: 0 });
     });
 
     // 3. Delete ALL Score Logs
     const logs = await admin.firestore().collection("scoreLog").get();
-    logs.docs.forEach((doc) => {
+    logs.docs.forEach((doc: QDoc) => {
       batch.delete(doc.ref);
     });
 
@@ -869,7 +875,7 @@ export const resetGame = onCall(async (request: CallableRequest<void>) => {
       .firestore()
       .collection("announcements")
       .get();
-    announcements.docs.forEach((doc) => {
+    announcements.docs.forEach((doc: QDoc) => {
       batch.delete(doc.ref);
     });
 

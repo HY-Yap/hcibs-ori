@@ -22,6 +22,7 @@ import {
   Menu,
   MenuItem,
   ListItemIcon,
+  Divider,
 } from "@mui/material";
 import { collection, onSnapshot } from "firebase/firestore"; // <-- CHANGED: use onSnapshot
 import { getFunctions, httpsCallable } from "firebase/functions";
@@ -204,12 +205,13 @@ export const AdminStationManagement: React.FC = () => {
         open={Boolean(anchorEl)}
         onClose={handleMenuClose}
       >
-        <MenuItem onClick={handleEditAction}>
+        <MenuItem onClick={() => handleEditAction()}>
           <ListItemIcon>
             <EditIcon fontSize="small" />
           </ListItemIcon>
           Edit
         </MenuItem>
+        <Divider />
         <MenuItem onClick={handleDeleteAction}>
           <ListItemIcon>
             <DeleteIcon fontSize="small" color="error" />
@@ -256,3 +258,4 @@ export const AdminStationManagement: React.FC = () => {
     </Box>
   );
 };
+export default AdminStationManagement;
