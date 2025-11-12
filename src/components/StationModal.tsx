@@ -58,8 +58,12 @@ export const StationModal: FC<StationModalProps> = ({
   const [type, setType] = useState<"manned" | "unmanned" | "">("");
   const [location, setLocation] = useState("");
   const [description, setDescription] = useState("");
+  const [status, setStatus] = useState<
+    "OPEN" | "CLOSED_LUNCH" | "CLOSED_PERMANENTLY"
+  >("OPEN");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   // --- POPULATE FORM ON OPEN (If editing) ---
   useEffect(() => {
@@ -68,18 +72,20 @@ export const StationModal: FC<StationModalProps> = ({
       setType(initialData.type);
       setLocation(initialData.location || "");
       setDescription(initialData.description || "");
+      setStatus(initialData.status as any);
     } else if (open && !initialData) {
       // Reset if creating new
       setName("");
       setType("");
       setLocation("");
       setDescription("");
+      setStatus("OPEN");
     }
     setError(null);
   }, [open, initialData]);
 
-  const handleSubmit = async () => {
-    setLoading(true);
+  const handleSave = async () => {
+    setSaving(true);
     setError(null);
     try {
       const functions = getFunctions(undefined, "asia-southeast1");
@@ -100,6 +106,12 @@ export const StationModal: FC<StationModalProps> = ({
         await createFn({ name, type, location, description });
       }
 
+      // If editing an existing station and status changed, call updateStationStatus
+      if (initialData?.id && status !== initialData?.status) {
+        const fn = httpsCallable(functions, "updateStationStatus");
+        await fn({ stationId: initialData.id, newStatus: status });
+      }
+
       onSuccess();
       onClose();
     } catch (err: any) {
@@ -107,6 +119,7 @@ export const StationModal: FC<StationModalProps> = ({
       setError(err.message || "An unknown error occurred.");
     } finally {
       setLoading(false);
+      setSaving(false);
     }
   };
 
@@ -155,15 +168,33 @@ export const StationModal: FC<StationModalProps> = ({
           onChange={(e) => setDescription(e.target.value)}
           placeholder="Only shown to OGLs if Unmanned."
         />
+        {/* Status selector shown when editing (or always if you prefer) */}
+        <FormControl fullWidth>
+          <InputLabel id="station-status-label">Status</InputLabel>
+          <Select
+            labelId="station-status-label"
+            value={status}
+            label="Status"
+            onChange={(e) =>
+              setStatus(
+                e.target.value as "OPEN" | "CLOSED_LUNCH" | "CLOSED_PERMANENTLY"
+              )
+            }
+          >
+            <MenuItem value="OPEN">OPEN</MenuItem>
+            <MenuItem value="CLOSED_LUNCH">CLOSED (LUNCH)</MenuItem>
+            <MenuItem value="CLOSED_PERMANENTLY">CLOSED (PERMANENTLY)</MenuItem>
+          </Select>
+        </FormControl>
         {error && <Alert severity="error">{error}</Alert>}
         <Button
           variant="contained"
           color="primary"
           fullWidth
           disabled={loading || !name || !type}
-          onClick={handleSubmit}
+          onClick={handleSave}
         >
-          {loading ? (
+          {loading || saving ? (
             <CircularProgress size={24} />
           ) : initialData ? (
             "Update Station"
