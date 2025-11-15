@@ -355,10 +355,16 @@ export const updateStationStatus = onCall(
       .get();
     const role = callerDoc.data()?.role;
     if (role !== "SM" && role !== "ADMIN")
-      throw new HttpsError("permission-denied", "Unauthorized to update station status.");
+      throw new HttpsError(
+        "permission-denied",
+        "Unauthorized to update station status."
+      );
 
     // Only require selectedStationId for SM role; admins may manage any station
-    if (role === "SM" && callerDoc.data()?.selectedStationId !== request.data.stationId) {
+    if (
+      role === "SM" &&
+      callerDoc.data()?.selectedStationId !== request.data.stationId
+    ) {
       throw new HttpsError(
         "permission-denied",
         "You can only manage your selected station."
@@ -912,6 +918,64 @@ export const makeAnnouncement = onCall(
         timestamp: admin.firestore.FieldValue.serverTimestamp(),
         createdBy: request.auth.uid,
       });
+      return { success: true };
+    } catch (error: any) {
+      throw new HttpsError("internal", error.message);
+    }
+  }
+);
+
+// ===================================================================
+// 24. UPDATE USER PROFILE (Name & Username)
+// ===================================================================
+export const updateUserProfile = onCall(
+  async (
+    request: CallableRequest<{ displayName: string; username: string }>
+  ) => {
+    if (!request.auth)
+      throw new HttpsError("unauthenticated", "Must be logged in.");
+
+    const { displayName, username } = request.data;
+    if (!displayName || !username)
+      throw new HttpsError("invalid-argument", "Name/Username required.");
+
+    try {
+      // 1. Update Auth profile (this is what updateProfile() does on client)
+      await admin.auth().updateUser(request.auth.uid, { displayName });
+
+      // 2. Update Firestore profile
+      await admin.firestore().collection("users").doc(request.auth.uid).update({
+        displayName,
+        username,
+      });
+
+      return { success: true };
+    } catch (error: any) {
+      throw new HttpsError("internal", error.message);
+    }
+  }
+);
+
+// ===================================================================
+// 25. UPDATE USER EMAIL
+// ===================================================================
+export const updateUserEmail = onCall(
+  async (request: CallableRequest<{ email: string }>) => {
+    if (!request.auth)
+      throw new HttpsError("unauthenticated", "Must be logged in.");
+
+    const { email } = request.data;
+    if (!email) throw new HttpsError("invalid-argument", "Email is required.");
+
+    try {
+      // 1. Update Auth email
+      await admin.auth().updateUser(request.auth.uid, { email });
+
+      // 2. Update Firestore email
+      await admin.firestore().collection("users").doc(request.auth.uid).update({
+        email,
+      });
+
       return { success: true };
     } catch (error: any) {
       throw new HttpsError("internal", error.message);
