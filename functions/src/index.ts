@@ -1,6 +1,13 @@
-import { onCall, HttpsError } from "firebase-functions/v2/https";
+import {
+  onCall,
+  HttpsError,
+  CallableOptions,
+} from "firebase-functions/v2/https";
 import { setGlobalOptions } from "firebase-functions/v2";
 import * as admin from "firebase-admin";
+import archiver from "archiver"; // Default import for zipping!
+import { file as makeTmpFile } from "tmp-promise"; // For temporary file storage
+import { onRequest } from "firebase-functions/v2/https";
 
 // Set region for all v2 functions (asia-southeast1)
 setGlobalOptions({ region: "asia-southeast1" });
@@ -44,8 +51,8 @@ interface ScoreData {
   stationPoints?: number;
   sideQuestId?: string;
   sideQuestPoints?: number;
-  submissionUrl?: string; // <-- NEW
-  textAnswer?: string; // <-- NEW
+  submissionUrl?: string;
+  textAnswer?: string;
 }
 
 // add a local alias for readability using the admin SDK types
@@ -1191,6 +1198,186 @@ export const deleteSubmission = onCall(
       return { success: true, message: "Submission deleted." };
     } catch (error: any) {
       throw new HttpsError("internal", error.message || String(error));
+    }
+  }
+);
+
+// ===================================================================
+// 28. CONVERT HEIC SUBMISSION SERVER-SIDE
+// ===================================================================
+export const convertHeicSubmission = onCall(
+  async (request: CallableRequest<{ submissionUrl: string }>) => {
+    if (!request.auth)
+      throw new HttpsError("unauthenticated", "Must be logged in.");
+
+    const { submissionUrl } = request.data;
+    if (!submissionUrl)
+      throw new HttpsError("invalid-argument", "submissionUrl required.");
+
+    try {
+      // parse storage path from download URL
+      let pathPart: string | undefined;
+      try {
+        const url = new URL(submissionUrl);
+        pathPart = url.pathname.split("/o/")[1]?.split("?")[0];
+      } catch {
+        pathPart = undefined;
+      }
+      if (!pathPart) {
+        throw new HttpsError(
+          "invalid-argument",
+          "Could not parse Storage path from URL."
+        );
+      }
+      const storagePath = decodeURIComponent(pathPart);
+
+      const bucket = admin.storage().bucket();
+      const file = bucket.file(storagePath);
+      const [exists] = await file.exists();
+      if (!exists) {
+        throw new HttpsError("not-found", "Source file not found in storage.");
+      }
+
+      // download original
+      const [buffer] = await file.download();
+
+      // dynamic require of sharp (so deployment fails only if dependency missing)
+      let sharp: any;
+      try {
+        sharp = require("sharp");
+      } catch (err) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Server conversion dependency missing. Run `npm install sharp` in functions/ and redeploy."
+        );
+      }
+
+      // Convert to JPEG
+      const jpegBuffer = await sharp(buffer).jpeg({ quality: 90 }).toBuffer();
+
+      // Save converted file next to original with .jpg extension
+      const newPath = storagePath.replace(/\.[^/.]+$/, "") + ".jpg";
+      const newFile = bucket.file(newPath);
+      await newFile.save(jpegBuffer, {
+        metadata: { contentType: "image/jpeg" },
+      });
+
+      // Make the new file readable — generate signed URL (long lived)
+      const [signedUrl] = await newFile.getSignedUrl({
+        action: "read",
+        expires: "03-09-2491", // adjust if you want different expiry
+      });
+
+      return { success: true, url: signedUrl, storagePath: newPath };
+    } catch (error: any) {
+      console.error("convertHeicSubmission error:", error);
+      throw new HttpsError("internal", error.message || String(error));
+    }
+  }
+);
+
+// ===================================================================
+// 29. ZIP TASK SUBMISSIONS (FIXED)
+// ===================================================================
+const zipOptions: CallableOptions = {
+  timeoutSeconds: 540,
+  memory: "1GiB",
+  invoker: "public",
+};
+
+export const zipTaskSubmissions = onRequest(
+  {
+    timeoutSeconds: 540,
+    memory: "1GiB",
+    cors: true, // This enables CORS for onRequest
+  },
+  async (req, res) => {
+    // Handle CORS preflight
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
+    if (req.method === "OPTIONS") {
+      res.status(204).send("");
+      return;
+    }
+
+    try {
+      // Extract data from request body
+      const { taskId, taskName } = req.body.data;
+
+      if (!taskId || !taskName) {
+        res.status(400).json({ error: "Missing taskId or taskName" });
+        return;
+      }
+
+      // Fetch submissions for this task
+      const logsSnap = await admin
+        .firestore()
+        .collection("scoreLog")
+        .where("submissionUrl", "!=", null)
+        .get();
+
+      const urls: string[] = [];
+      logsSnap.forEach((doc) => {
+        const data = doc.data();
+        const sourceId = data.stationId || data.sourceId;
+        if (sourceId === taskId && data.submissionUrl) {
+          urls.push(data.submissionUrl);
+        }
+      });
+
+      if (urls.length === 0) {
+        res
+          .status(404)
+          .json({ error: "No file submissions found for this task" });
+        return;
+      }
+
+      // Create temp file and ZIP
+      const { path: tmpFilePath, cleanup } = await makeTmpFile({
+        postfix: ".zip",
+      });
+      const output = require("fs").createWriteStream(tmpFilePath);
+      const archive = archiver("zip", { zlib: { level: 9 } });
+
+      archive.pipe(output);
+
+      // Download and add each file to archive
+      for (let i = 0; i < urls.length; i++) {
+        const url = urls[i];
+        const fileName = `submission_${i + 1}_${
+          url.split("/").pop()?.split("?")[0] || "file"
+        }`;
+        try {
+          const response = await fetch(url);
+          if (!response.ok) continue;
+          const buffer = Buffer.from(await response.arrayBuffer());
+          archive.append(buffer, { name: fileName });
+        } catch (err) {
+          console.error(`Failed to fetch ${url}:`, err);
+        }
+      }
+
+      await archive.finalize();
+      await new Promise((resolve) => output.on("close", resolve));
+
+      // Upload to Firebase Storage
+      const bucket = admin.storage().bucket();
+      const zipFileName = `${taskName.replace(/\s+/g, "_")}_${Date.now()}.zip`;
+      const zipFile = bucket.file(`zips/${zipFileName}`);
+
+      await zipFile.save(require("fs").readFileSync(tmpFilePath));
+      await cleanup();
+
+      // Make public and get signed URL
+      await zipFile.makePublic();
+      const publicUrl = `https://storage.googleapis.com/${bucket.name}/${zipFile.name}`;
+
+      res.json({ result: { url: publicUrl } });
+    } catch (error: any) {
+      console.error("ZIP error:", error);
+      res.status(500).json({ error: error.message });
     }
   }
 );
