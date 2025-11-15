@@ -33,7 +33,7 @@ import {
   query,
   orderBy as firestoreOrderBy,
 } from "firebase/firestore";
-import { getFunctions, httpsCallable } from "firebase/functions";
+import { httpsCallable } from "firebase/functions";
 import { db, functions as firebaseFunctions } from "../firebase";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";

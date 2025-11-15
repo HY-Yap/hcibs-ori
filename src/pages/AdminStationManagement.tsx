@@ -36,7 +36,7 @@ import {
   query,
   orderBy as firestoreOrderBy,
 } from "firebase/firestore"; // Renamed orderBy to avoid conflict
-import { getFunctions, httpsCallable } from "firebase/functions";
+import { httpsCallable } from "firebase/functions";
 import { db, functions as firebaseFunctions } from "../firebase";
 import { StationModal, type StationData } from "../components/StationModal";
 import DeleteIcon from "@mui/icons-material/Delete";

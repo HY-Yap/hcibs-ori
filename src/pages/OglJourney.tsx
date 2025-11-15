@@ -65,7 +65,6 @@ export const OglJourney: FC = () => {
   const [stations, setStations] = useState<StationData[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   // clear submission when destination changes so we don't keep stale uploads
   const currentDestinationId = groupData?.destinationId;

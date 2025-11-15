@@ -20,7 +20,7 @@ import {
   updatePassword,
 } from "firebase/auth";
 // Removed getFunctions, httpsCallable as we get 'functions' from ../firebase
-import { db, auth, functions } from "../firebase"; // Import our pre-configured instances
+import { db, functions } from "../firebase"; // Import our pre-configured instances
 import { httpsCallable } from "firebase/functions"; // We only need this import for the *type*
 import { doc, getDoc } from "firebase/firestore";
 import AccountCircleIcon from "@mui/icons-material/AccountCircle";

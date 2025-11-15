@@ -28,7 +28,7 @@ import {
   TableSortLabel,
 } from "@mui/material";
 import { collection, getDocs } from "firebase/firestore";
-import { getFunctions, httpsCallable } from "firebase/functions";
+import { httpsCallable } from "firebase/functions";
 import { db, functions as firebaseFunctions } from "../firebase"; // Use the named 'functions' export
 import { AddUserModal } from "../components/AddUserModal";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
