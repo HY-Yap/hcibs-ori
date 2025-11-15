@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import type { FC } from "react";
 import {
   Box,
@@ -8,268 +8,314 @@ import {
   Button,
   Alert,
   CircularProgress,
+  Tabs,
+  Tab,
+  Divider,
+  // Removed Grid, it's causing errors
 } from "@mui/material";
 import { useAuth } from "../context/AuthContext";
-import type { User } from "firebase/auth";
 import {
   reauthenticateWithCredential,
   EmailAuthProvider,
   updatePassword,
 } from "firebase/auth";
-import { db } from "../firebase";
+// Removed getFunctions, httpsCallable as we get 'functions' from ../firebase
+import { db, auth, functions } from "../firebase"; // Import our pre-configured instances
+import { httpsCallable } from "firebase/functions"; // We only need this import for the *type*
 import { doc, getDoc } from "firebase/firestore";
+import AccountCircleIcon from "@mui/icons-material/AccountCircle";
+import SecurityIcon from "@mui/icons-material/Security";
+import InfoIcon from "@mui/icons-material/Info";
 
-const ProfilePage: FC = () => {
+export const ProfilePage: FC = () => {
   const { profile, currentUser } = useAuth();
+  const [tabIndex, setTabIndex] = useState(0);
 
-  // fetched display names for station/group
-  const [fetchedStationName, setFetchedStationName] = useState<string | null>(null);
-  const [fetchedGroupName, setFetchedGroupName] = useState<string | null>(null);
+  // Fetched names
+  const [stationName, setStationName] = useState<string | null>(null);
+  const [groupName, setGroupName] = useState<string | null>(null);
 
-  // derive IDs safely (SM uses selectedStationId, OGL uses groupId)
-  const selectedStationId =
-    (profile as any)?.selectedStationId || (profile as any)?.stationId || null;
-  const profileGroupId = profile?.groupId || null;
+  // Forms State
+  // We initialize state, but we'll use an effect to update it if the profile re-loads
+  const [displayName, setDisplayName] = useState(profile?.displayName || "");
+  const [username, setUsername] = useState(profile?.username || "");
+  const [email, setEmail] = useState(currentUser?.email || "");
 
-  useEffect(() => {
-    setFetchedStationName(null);
-    if (!selectedStationId) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const snap = await getDoc(doc(db, "stations", String(selectedStationId)));
-        if (!cancelled) {
-          setFetchedStationName(
-            snap.exists() ? ((snap.data() as any).name || String(selectedStationId)) : String(selectedStationId)
-          );
-        }
-      } catch {
-        if (!cancelled) setFetchedStationName(String(selectedStationId));
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedStationId]);
-
-  useEffect(() => {
-    setFetchedGroupName(null);
-    if (!profileGroupId) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const snap = await getDoc(doc(db, "groups", String(profileGroupId)));
-        if (!cancelled) {
-          setFetchedGroupName(
-            snap.exists() ? ((snap.data() as any).name || String(profileGroupId)) : String(profileGroupId)
-          );
-        }
-      } catch {
-        if (!cancelled) setFetchedGroupName(String(profileGroupId));
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [profileGroupId]);
-
-  // Password form state
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
-  // UI state
+  // UI State
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // Safely derive display name and username using profile and currentUser
-  const displayName =
-    profile?.displayName ||
-    (currentUser as User | null)?.displayName ||
-    (profile as any)?.username ||
-    "User";
-  const role = profile?.role || "—";
-  const email = currentUser?.email || "—";
-  const username =
-    (profile as any)?.username || (currentUser as User | null)?.uid || "—";
+  // --- 1. DATA FETCHING (Cleaned up) ---
+  useEffect(() => {
+    // Fetch Station Name
+    if (profile?.role === "SM" && profile.selectedStationId) {
+      getDoc(doc(db, "stations", profile.selectedStationId)).then((snap) => {
+        if (snap.exists()) setStationName(snap.data().name);
+      });
+    }
+    // Fetch Group Name
+    if (profile?.role === "OGL" && profile.groupId) {
+      getDoc(doc(db, "groups", profile.groupId)).then((snap) => {
+        if (snap.exists()) setGroupName(snap.data().name);
+      });
+    }
+  }, [profile]); // Re-run if profile object changes
 
-  // conditional fields — prefer fetched names, fallback to profile values / ids
-  const oglGroup = fetchedGroupName || (profile as any)?.groupName || profile?.groupId || null;
-  const smStation =
-    fetchedStationName ||
-    (profile as any)?.stationName ||
-    selectedStationId ||
-    (profile as any)?.station ||
-    null;
+  // --- NEW: Sync local form state if profile changes ---
+  useEffect(() => {
+    if (profile) {
+      setDisplayName(profile.displayName || "");
+      setUsername(profile.username || "");
+    }
+    if (currentUser) {
+      setEmail(currentUser.email || "");
+    }
+  }, [profile, currentUser]);
 
-  const passwordsMatch = newPassword !== "" && newPassword === confirmPassword;
-  const canSubmit =
-    !loading && currentPassword !== "" && newPassword !== "" && passwordsMatch;
-
-  const handleChangePassword = async () => {
+  const clearForm = () => {
+    setCurrentPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
     setError(null);
     setSuccess(null);
+  };
 
-    if (!currentUser || !currentUser.email) {
-      setError("Unable to change password: no signed-in user found.");
-      return;
-    }
+  const reauthenticate = async () => {
+    if (!currentUser?.email) throw new Error("No user email.");
+    const cred = EmailAuthProvider.credential(
+      currentUser.email,
+      currentPassword
+    );
+    await reauthenticateWithCredential(currentUser, cred);
+  };
 
-    // narrow currentUser to firebase User for TypeScript
-    const user = currentUser as User;
-
-    if (!canSubmit) {
-      setError("Please fill out the form correctly. Ensure passwords match.");
-      return;
-    }
-
+  // --- 2. FORM HANDLERS ---
+  const handleUpdateProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
     setLoading(true);
+    setError(null);
+    setSuccess(null);
     try {
-      // assert email is non-null (we already checked above)
-      const cred = EmailAuthProvider.credential(user.email!, currentPassword);
-      await reauthenticateWithCredential(user, cred);
-      await updatePassword(user, newPassword);
-
-      setSuccess("Password changed successfully.");
-      setCurrentPassword("");
-      setNewPassword("");
-      setConfirmPassword("");
+      // Use the 'functions' instance we imported from ../firebase
+      const updateFn = httpsCallable(functions, "updateUserProfile");
+      await updateFn({ displayName, username });
+      setSuccess("Profile info updated!");
     } catch (err: any) {
-      // Prefer friendly messages when possible
-      const msg =
-        err?.message ||
-        (err?.code ? `Error: ${String(err.code)}` : "Failed to change password.");
-      setError(msg);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdateSecurity = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      await reauthenticate();
+
+      if (email !== currentUser?.email) {
+        const emailFn = httpsCallable(functions, "updateUserEmail");
+        await emailFn({ email });
+      }
+
+      if (newPassword) {
+        if (newPassword !== confirmPassword)
+          throw new Error("Passwords do not match.");
+        await updatePassword(currentUser!, newPassword);
+      }
+
+      setSuccess("Account security updated!");
+      clearForm();
+    } catch (err: any) {
+      setError(err.message || "Failed to update security.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <Box sx={{ maxWidth: 900, mx: "auto", mt: 4, px: 2, display: "grid", gap: 3 }}>
-      {/* Profile header */}
-      <Paper sx={{ p: 3 }}>
-        <Typography variant="h4" gutterBottom>
-          Welcome, {displayName}
-        </Typography>
+    <Box sx={{ maxWidth: 800, mx: "auto", p: { xs: 1, sm: 2 } }}>
+      <Paper sx={{ overflow: "hidden", borderRadius: 3, boxShadow: 3 }}>
+        <Box sx={{ borderBottom: 1, borderColor: "divider" }}>
+          <Tabs
+            value={tabIndex}
+            onChange={(_, val) => setTabIndex(val)}
+            variant="fullWidth"
+            aria-label="Profile tabs"
+          >
+            <Tab icon={<InfoIcon />} iconPosition="start" label="My Info" />
+            <Tab
+              icon={<AccountCircleIcon />}
+              iconPosition="start"
+              label="Edit Profile"
+            />
+            <Tab
+              icon={<SecurityIcon />}
+              iconPosition="start"
+              label="Security"
+            />
+          </Tabs>
+        </Box>
 
-        <Typography variant="body1" sx={{ mt: 1 }}>
-          Role: <strong>{role}</strong>
-        </Typography>
-        <Typography variant="body1">
-          Email: <strong>{email}</strong>
-        </Typography>
-        <Typography variant="body1">
-          Username: <strong>{username}</strong>
-        </Typography>
-
-        {role === "OGL" && oglGroup && (
-          <Typography variant="body1">
-            Group: <strong>{oglGroup}</strong>
+        {/* --- TAB 1: INFO (FIXED WITH CSS GRID) --- */}
+        <Box sx={{ p: 4, display: tabIndex === 0 ? "block" : "none" }}>
+          <Typography variant="h5" gutterBottom>
+            Hi, {profile?.displayName || "User"}!
           </Typography>
-        )}
+          <Divider sx={{ my: 2 }} />
+          {/* Replaced buggy MUI Grid with CSS Grid for simple layout */}
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: "1fr 2fr", // 33% / 66% split
+              gap: 1,
+              alignItems: "center",
+            }}
+          >
+            <Typography color="text.secondary">Role</Typography>
+            <Typography>
+              <strong>{profile?.role}</strong>
+            </Typography>
 
-        {role === "SM" && smStation && (
-          <Typography variant="body1">
-            Station: <strong>{smStation}</strong>
+            <Typography color="text.secondary">Login Email</Typography>
+            <Typography>
+              <strong>{currentUser?.email}</strong>
+            </Typography>
+
+            <Typography color="text.secondary">Username</Typography>
+            <Typography>
+              <strong>{profile?.username || "Not set"}</strong>
+            </Typography>
+
+            {profile?.role === "OGL" && (
+              <>
+                <Typography color="text.secondary">Group</Typography>
+                <Typography>
+                  <strong>{groupName || "..."}</strong>
+                </Typography>
+              </>
+            )}
+            {profile?.role === "SM" && (
+              <>
+                <Typography color="text.secondary">Station</Typography>
+                <Typography>
+                  <strong>{stationName || "..."}</strong>
+                </Typography>
+              </>
+            )}
+          </Box>
+        </Box>
+
+        {/* --- TAB 2: EDIT PROFILE --- */}
+        <Box sx={{ p: 4, display: tabIndex === 1 ? "block" : "none" }}>
+          <Typography variant="h6" gutterBottom>
+            Edit Public Profile
           </Typography>
-        )}
-      </Paper>
-
-      {/* Account settings: change password */}
-      <Paper sx={{ p: 3 }}>
-        <Typography variant="h6" gutterBottom>
-          Account settings
-        </Typography>
-
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Change your account password. You must verify your current password to
-          proceed.
-        </Typography>
-
-        {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
-            {error}
-          </Alert>
-        )}
-        {success && (
-          <Alert severity="success" sx={{ mb: 2 }}>
-            {success}
-          </Alert>
-        )}
-
-        <Box
-          component="form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleChangePassword();
-          }}
-          sx={{
-            display: "grid",
-            gap: 2,
-            gridTemplateColumns: "1fr",
-            mt: 1,
-          }}
-        >
-          <TextField
-            label="Current Password"
-            type="password"
-            value={currentPassword}
-            onChange={(e) => setCurrentPassword(e.target.value)}
-            fullWidth
-            required
-            autoComplete="current-password"
-          />
-
-          <TextField
-            label="New Password"
-            type="password"
-            value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-            fullWidth
-            required
-            autoComplete="new-password"
-          />
-
-          <TextField
-            label="Confirm New Password"
-            type="password"
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            fullWidth
-            required
-            error={confirmPassword !== "" && !passwordsMatch}
-            helperText={
-              confirmPassword !== "" && !passwordsMatch
-                ? "Passwords do not match."
-                : ""
-            }
-            autoComplete="new-password"
-          />
-
-          <Box sx={{ display: "flex", gap: 2, alignItems: "center", mt: 1 }}>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            This information is visible to Admins.
+          </Typography>
+          <Box
+            component="form"
+            onSubmit={handleUpdateProfile}
+            sx={{ display: "flex", flexDirection: "column", gap: 2 }}
+          >
+            <TextField
+              label="Display Name"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              fullWidth
+            />
+            <TextField
+              label="Username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              fullWidth
+              helperText="Your SM-01 / OGL-01 ID. This is how you log in without an email."
+            />
+            {error && <Alert severity="error">{error}</Alert>}
+            {success && <Alert severity="success">{success}</Alert>}
             <Button
+              type="submit"
               variant="contained"
-              color="primary"
-              onClick={handleChangePassword}
-              disabled={!canSubmit}
+              disabled={loading}
+              sx={{ alignSelf: "flex-start" }}
             >
-              {loading ? <CircularProgress size={20} color="inherit" /> : "Change Password"}
+              {loading ? <CircularProgress size={24} /> : "Save Profile"}
             </Button>
+          </Box>
+        </Box>
 
-            <Button
-              variant="outlined"
-              color="inherit"
-              onClick={() => {
-                setCurrentPassword("");
-                setNewPassword("");
-                setConfirmPassword("");
+        {/* --- TAB 3: ACCOUNT SECURITY --- */}
+        <Box sx={{ p: 4, display: tabIndex === 2 ? "block" : "none" }}>
+          <Typography variant="h6" gutterBottom>
+            Account Security
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            To change your email or password, please re-enter your current
+            password first.
+          </Typography>
+          <Box
+            component="form"
+            onSubmit={handleUpdateSecurity}
+            sx={{ display: "flex", flexDirection: "column", gap: 2 }}
+          >
+            <TextField
+              label="Current Password"
+              type="password"
+              value={currentPassword}
+              onChange={(e) => {
+                setCurrentPassword(e.target.value);
                 setError(null);
                 setSuccess(null);
               }}
+              fullWidth
+              required
+            />
+            <Divider sx={{ my: 1 }} />
+            <TextField
+              label="New Login Email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              fullWidth
+            />
+            <TextField
+              label="New Password (optional)"
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              fullWidth
+            />
+            <TextField
+              label="Confirm New Password"
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              fullWidth
+              error={confirmPassword !== "" && newPassword !== confirmPassword}
+              helperText={
+                confirmPassword !== "" && newPassword !== confirmPassword
+                  ? "Passwords do not match."
+                  : ""
+              }
+            />
+            {error && <Alert severity="error">{error}</Alert>}
+            {/* --- FIXED TYPO: VMRt -> Alert --- */}
+            {success && <Alert severity="success">{success}</Alert>}
+            <Button
+              type="submit"
+              variant="contained"
+              disabled={loading || !currentPassword}
+              sx={{ alignSelf: "flex-start" }}
             >
-              Reset
+              {loading ? <CircularProgress size={24} /> : "Update Security"}
             </Button>
           </Box>
         </Box>
@@ -277,6 +323,3 @@ const ProfilePage: FC = () => {
     </Box>
   );
 };
-
-export { ProfilePage };
-export default ProfilePage;

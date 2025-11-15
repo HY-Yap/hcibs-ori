@@ -29,11 +29,11 @@ import {
 } from "@mui/material";
 import { collection, getDocs } from "firebase/firestore";
 import { getFunctions, httpsCallable } from "firebase/functions";
-import { db } from "../firebase";
+import { db, functions as firebaseFunctions } from "../firebase"; // Use the named 'functions' export
 import { AddUserModal } from "../components/AddUserModal";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import DeleteIcon from "@mui/icons-material/Delete";
-import WarningIcon from "@mui/icons-material/Warning"; // <-- NEW IMPORT
+import WarningIcon from "@mui/icons-material/Warning";
 
 // Define the shape of our user data
 interface UserData {
@@ -41,10 +41,11 @@ interface UserData {
   displayName: string;
   role: "ADMIN" | "SM" | "OGL";
   email?: string;
+  username?: string; // <-- 1. ADDED USERNAME
 }
 
 type UserRole = "ADMIN" | "SM" | "OGL" | "ALL";
-type SortableColumn = "displayName" | "role" | "email";
+type SortableColumn = "displayName" | "role" | "email" | "username"; // <-- 2. ADDED USERNAME
 type Order = "asc" | "desc";
 
 export const AdminUserManagement: React.FC = () => {
@@ -77,7 +78,6 @@ export const AdminUserManagement: React.FC = () => {
     setLoading(true);
     setError(null);
     setDeleteError(null);
-    // Don't clear deleteAllSuccess here so they can see the message
     try {
       const usersCollectionRef = collection(db, "users");
       const querySnapshot = await getDocs(usersCollectionRef);
@@ -111,15 +111,19 @@ export const AdminUserManagement: React.FC = () => {
         if (
           searchTerm &&
           !user.displayName.toLowerCase().includes(searchTerm.toLowerCase()) &&
-          !user.email?.toLowerCase().includes(searchTerm.toLowerCase())
+          !user.email?.toLowerCase().includes(searchTerm.toLowerCase()) &&
+          // --- 3. ADD USERNAME TO SEARCH ---
+          !user.username?.toLowerCase().includes(searchTerm.toLowerCase())
         ) {
           return false;
         }
         return true;
       })
       .sort((a, b) => {
-        const valueA = (a[orderBy] || "").toLowerCase();
-        const valueB = (b[orderBy] || "").toLowerCase();
+        // Handle sorting for potentially undefined fields
+        const valueA = (a[orderBy] || "").toString().toLowerCase();
+        const valueB = (b[orderBy] || "").toString().toLowerCase();
+
         if (valueB < valueA) return order === "asc" ? 1 : -1;
         if (valueB > valueA) return order === "asc" ? -1 : 1;
         return 0;
@@ -156,8 +160,8 @@ export const AdminUserManagement: React.FC = () => {
     setDeleteLoading(true);
     setDeleteError(null);
     try {
-      const functions = getFunctions(undefined, "asia-southeast1");
-      const deleteUserFn = httpsCallable(functions, "deleteUser");
+      // Use the imported 'functions' instance
+      const deleteUserFn = httpsCallable(firebaseFunctions, "deleteUser");
       await deleteUserFn({ uid: selectedUser.id });
       closeDeleteConfirm();
       fetchUsers();
@@ -169,7 +173,6 @@ export const AdminUserManagement: React.FC = () => {
     }
   };
 
-  // --- NEW! DANGER ZONE HANDLERS ---
   const openDeleteAll = () => {
     setDeleteAllOpen(true);
     setDeleteAllConfirmation("");
@@ -184,12 +187,13 @@ export const AdminUserManagement: React.FC = () => {
     setDeleteAllLoading(true);
     setDeleteAllError(null);
     try {
-      const functions = getFunctions(undefined, "asia-southeast1");
-      const deleteAllUsersFn = httpsCallable(functions, "deleteAllUsers");
+      const deleteAllUsersFn = httpsCallable(
+        firebaseFunctions,
+        "deleteAllUsers"
+      );
       const result = await deleteAllUsersFn();
       const data = result.data as any;
 
-      // Success!
       setDeleteAllSuccess(data.message);
       closeDeleteAll();
       fetchUsers();
@@ -211,8 +215,6 @@ export const AdminUserManagement: React.FC = () => {
 
   return (
     <Box sx={{ pb: 8 }}>
-      {" "}
-      {/* Added padding bottom for scrolling past danger zone */}
       <Box
         sx={{
           display: "flex",
@@ -251,7 +253,7 @@ export const AdminUserManagement: React.FC = () => {
         >
           <Box sx={{ flexGrow: 1, flexBasis: { xs: "100%", sm: "66.66%" } }}>
             <TextField
-              label="Search by name or email"
+              label="Search by name, email, or username" // <-- Updated label
               variant="outlined"
               fullWidth
               value={searchTerm}
@@ -294,6 +296,16 @@ export const AdminUserManagement: React.FC = () => {
                   Display Name
                 </TableSortLabel>
               </TableCell>
+              {/* --- 4. ADDED USERNAME HEADER --- */}
+              <TableCell>
+                <TableSortLabel
+                  active={orderBy === "username"}
+                  direction={orderBy === "username" ? order : "asc"}
+                  onClick={() => handleRequestSort("username")}
+                >
+                  Username
+                </TableSortLabel>
+              </TableCell>
               <TableCell>
                 <TableSortLabel
                   active={orderBy === "role"}
@@ -319,14 +331,16 @@ export const AdminUserManagement: React.FC = () => {
           <TableBody>
             {loading && (
               <TableRow>
-                <TableCell colSpan={5} align="center">
+                {/* --- 6. UPDATED COLSPAN --- */}
+                <TableCell colSpan={6} align="center">
                   <CircularProgress size={24} />
                 </TableCell>
               </TableRow>
             )}
             {!loading && filteredAndSortedUsers.length === 0 && (
               <TableRow>
-                <TableCell colSpan={5} align="center">
+                {/* --- 6. UPDATED COLSPAN --- */}
+                <TableCell colSpan={6} align="center">
                   {users.length === 0
                     ? "No users found."
                     : "No users match your filters."}
@@ -342,6 +356,8 @@ export const AdminUserManagement: React.FC = () => {
                   <TableCell component="th" scope="row">
                     {user.displayName}
                   </TableCell>
+                  {/* --- 5. ADDED USERNAME CELL --- */}
+                  <TableCell>{user.username || "N/A"}</TableCell>
                   <TableCell>{user.role}</TableCell>
                   <TableCell>{user.email || "N/A"}</TableCell>
                   <TableCell>
@@ -360,7 +376,7 @@ export const AdminUserManagement: React.FC = () => {
           </TableBody>
         </Table>
       </TableContainer>
-      {/* --- NEW! DANGER ZONE SECTION --- */}
+      {/* --- DANGER ZONE SECTION --- */}
       <Box
         sx={{
           mt: 8,
@@ -436,7 +452,7 @@ export const AdminUserManagement: React.FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
-      {/* --- NEW! DELETE ALL CONFIRMATION DIALOG --- */}
+      {/* --- DELETE ALL CONFIRMATION DIALOG --- */}
       <Dialog
         open={isDeleteAllOpen}
         onClose={closeDeleteAll}
