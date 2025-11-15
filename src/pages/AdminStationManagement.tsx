@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   Box,
   Typography,
@@ -23,14 +23,30 @@ import {
   MenuItem,
   ListItemIcon,
   Divider,
+  // --- NEW IMPORTS ---
+  TextField,
+  FormControl,
+  InputLabel,
+  Select,
+  TableSortLabel,
 } from "@mui/material";
-import { collection, onSnapshot } from "firebase/firestore"; // <-- CHANGED: use onSnapshot
+import {
+  collection,
+  onSnapshot,
+  query,
+  orderBy as firestoreOrderBy,
+} from "firebase/firestore"; // Renamed orderBy to avoid conflict
 import { getFunctions, httpsCallable } from "firebase/functions";
-import { db } from "../firebase";
+import { db, functions as firebaseFunctions } from "../firebase";
 import { StationModal, type StationData } from "../components/StationModal";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
+
+type StationType = "manned" | "unmanned" | "ALL";
+type StationStatus = "OPEN" | "CLOSED_LUNCH" | "CLOSED_PERMANENTLY" | "ALL";
+type SortableColumn = "name" | "type" | "location" | "status";
+type Order = "asc" | "desc";
 
 export const AdminStationManagement: React.FC = () => {
   const [stations, setStations] = useState<StationData[]>([]);
@@ -44,25 +60,28 @@ export const AdminStationManagement: React.FC = () => {
   const [selectedStation, setSelectedStation] = useState<StationData | null>(
     null
   );
-
-  // Delete state
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
-  // --- NEW! REAL-TIME LISTENER ---
+  // --- NEW FILTER/SORT STATE ---
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filterType, setFilterType] = useState<StationType>("ALL");
+  const [filterStatus, setFilterStatus] = useState<StationStatus>("ALL");
+  const [orderBy, setOrderBy] = useState<SortableColumn>("name");
+  const [order, setOrder] = useState<Order>("asc");
+
   useEffect(() => {
     setLoading(true);
-    // onSnapshot listens for ANY change in the 'stations' collection
+    // Real-time listener
+    const q = query(collection(db, "stations"), firestoreOrderBy("name")); // Keep default sort by name
     const unsubscribe = onSnapshot(
-      collection(db, "stations"),
+      q,
       (snapshot) => {
         const stationList = snapshot.docs.map((doc) => ({
           id: doc.id,
           ...doc.data(),
         })) as StationData[];
-
-        // Sort alphabetically
-        setStations(stationList.sort((a, b) => a.name.localeCompare(b.name)));
+        setStations(stationList);
         setLoading(false);
       },
       (err) => {
@@ -71,12 +90,41 @@ export const AdminStationManagement: React.FC = () => {
         setLoading(false);
       }
     );
-
-    // Cleanup listener when leaving page
     return () => unsubscribe();
   }, []);
 
-  // --- HANDLERS ---
+  // --- NEW! Memoized, Filtered, and Sorted List ---
+  const filteredAndSortedStations = useMemo(() => {
+    return stations
+      .filter((s) => {
+        if (filterType !== "ALL" && s.type !== filterType) return false;
+        if (filterStatus !== "ALL" && (s.status || "OPEN") !== filterStatus)
+          return false;
+        if (
+          searchTerm &&
+          !s.name.toLowerCase().includes(searchTerm.toLowerCase()) &&
+          !s.location?.toLowerCase().includes(searchTerm.toLowerCase())
+        ) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const valueA = (a[orderBy] || "").toString().toLowerCase();
+        const valueB = (b[orderBy] || "").toString().toLowerCase();
+        if (valueB < valueA) return order === "asc" ? 1 : -1;
+        if (valueB > valueA) return order === "asc" ? -1 : 1;
+        return 0;
+      });
+  }, [stations, searchTerm, filterType, filterStatus, orderBy, order]);
+
+  // --- NEW! Sort Handler ---
+  const handleRequestSort = (property: SortableColumn) => {
+    const isAsc = orderBy === property && order === "asc";
+    setOrder(isAsc ? "desc" : "asc");
+    setOrderBy(property);
+  };
+
   const handleMenuOpen = (
     event: React.MouseEvent<HTMLElement>,
     station: StationData
@@ -87,20 +135,15 @@ export const AdminStationManagement: React.FC = () => {
   const handleMenuClose = () => {
     setAnchorEl(null);
   };
-
   const handleAddClick = () => {
     setStationToEdit(null);
     setModalOpen(true);
   };
-
   const handleEditAction = () => {
-    if (selectedStation) {
-      setStationToEdit(selectedStation);
-      setModalOpen(true);
-    }
+    if (selectedStation) setStationToEdit(selectedStation);
+    setModalOpen(true);
     handleMenuClose();
   };
-
   const handleDeleteAction = () => {
     setDeleteDialogOpen(true);
     handleMenuClose();
@@ -110,12 +153,10 @@ export const AdminStationManagement: React.FC = () => {
     if (!selectedStation?.id) return;
     setDeleteLoading(true);
     try {
-      const functions = getFunctions(undefined, "asia-southeast1");
-      const deleteStationFn = httpsCallable(functions, "deleteStation");
+      const deleteStationFn = httpsCallable(firebaseFunctions, "deleteStation");
       await deleteStationFn({ id: selectedStation.id });
       setDeleteDialogOpen(false);
-      // No need to manually fetch! onSnapshot will see the deletion and update automatically.
-    } catch (err) {
+    } catch (err: any) {
       console.error("Delete failed:", err);
       alert("Failed to delete station.");
     } finally {
@@ -138,14 +179,115 @@ export const AdminStationManagement: React.FC = () => {
         </Alert>
       )}
 
+      {/* --- NEW FILTER BAR --- */}
+      <Paper sx={{ p: 2, mb: 2 }}>
+        <Box
+          sx={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 2,
+            alignItems: "center",
+          }}
+        >
+          <Box
+            sx={{
+              flexBasis: { xs: "100%", sm: "48%", md: "40%" },
+              flexGrow: 1,
+            }}
+          >
+            <TextField
+              label="Search by name or location"
+              variant="outlined"
+              fullWidth
+              size="small"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </Box>
+          <Box
+            sx={{
+              flexBasis: { xs: "100%", sm: "48%", md: "25%" },
+              flexGrow: 1,
+            }}
+          >
+            <FormControl fullWidth size="small">
+              <InputLabel>Type</InputLabel>
+              <Select
+                value={filterType}
+                label="Type"
+                onChange={(e) => setFilterType(e.target.value as StationType)}
+              >
+                <MenuItem value="ALL">All Types</MenuItem>
+                <MenuItem value="manned">Manned</MenuItem>
+                <MenuItem value="unmanned">Unmanned</MenuItem>
+              </Select>
+            </FormControl>
+          </Box>
+          <Box
+            sx={{
+              flexBasis: { xs: "100%", sm: "48%", md: "30%" },
+              flexGrow: 1,
+            }}
+          >
+            <FormControl fullWidth size="small">
+              <InputLabel>Status</InputLabel>
+              <Select
+                value={filterStatus}
+                label="Status"
+                onChange={(e) =>
+                  setFilterStatus(e.target.value as StationStatus)
+                }
+              >
+                <MenuItem value="ALL">All Statuses</MenuItem>
+                <MenuItem value="OPEN">Open</MenuItem>
+                <MenuItem value="CLOSED_LUNCH">On Lunch</MenuItem>
+                <MenuItem value="CLOSED_PERMANENTLY">Closed</MenuItem>
+              </Select>
+            </FormControl>
+          </Box>
+        </Box>
+      </Paper>
+
       <TableContainer component={Paper}>
         <Table>
           <TableHead>
             <TableRow sx={{ backgroundColor: "#f4f4f4" }}>
-              <TableCell>Name</TableCell>
-              <TableCell>Type</TableCell>
-              <TableCell>Location</TableCell>
-              <TableCell>Status</TableCell>
+              <TableCell>
+                <TableSortLabel
+                  active={orderBy === "name"}
+                  direction={orderBy === "name" ? order : "asc"}
+                  onClick={() => handleRequestSort("name")}
+                >
+                  Name
+                </TableSortLabel>
+              </TableCell>
+              <TableCell>
+                <TableSortLabel
+                  active={orderBy === "type"}
+                  direction={orderBy === "type" ? order : "asc"}
+                  onClick={() => handleRequestSort("type")}
+                >
+                  Type
+                </TableSortLabel>
+              </TableCell>
+              <TableCell>
+                <TableSortLabel
+                  active={orderBy === "location"}
+                  direction={orderBy === "location" ? order : "asc"}
+                  onClick={() => handleRequestSort("location")}
+                >
+                  Location
+                </TableSortLabel>
+              </TableCell>
+              <TableCell>
+                <TableSortLabel
+                  active={orderBy === "status"}
+                  direction={orderBy === "status" ? order : "asc"}
+                  onClick={() => handleRequestSort("status")}
+                >
+                  Status
+                </TableSortLabel>
+              </TableCell>
               <TableCell align="right">Actions</TableCell>
             </TableRow>
           </TableHead>
@@ -156,14 +298,16 @@ export const AdminStationManagement: React.FC = () => {
                   <CircularProgress />
                 </TableCell>
               </TableRow>
-            ) : stations.length === 0 ? (
+            ) : filteredAndSortedStations.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={5} align="center">
-                  No stations found.
+                  {stations.length === 0
+                    ? "No stations found."
+                    : "No stations match filters."}
                 </TableCell>
               </TableRow>
             ) : (
-              stations.map((s) => (
+              filteredAndSortedStations.map((s) => (
                 <TableRow key={s.id}>
                   <TableCell sx={{ fontWeight: "bold" }}>{s.name}</TableCell>
                   <TableCell>
@@ -175,7 +319,6 @@ export const AdminStationManagement: React.FC = () => {
                   </TableCell>
                   <TableCell>{s.location || "-"}</TableCell>
                   <TableCell>
-                    {/* --- LIVE STATUS CHIP --- */}
                     <Chip
                       label={(s.status || "OPEN").replace("_", " ")}
                       color={
@@ -205,7 +348,7 @@ export const AdminStationManagement: React.FC = () => {
         open={Boolean(anchorEl)}
         onClose={handleMenuClose}
       >
-        <MenuItem onClick={() => handleEditAction()}>
+        <MenuItem onClick={handleEditAction}>
           <ListItemIcon>
             <EditIcon fontSize="small" />
           </ListItemIcon>
@@ -220,11 +363,10 @@ export const AdminStationManagement: React.FC = () => {
         </MenuItem>
       </Menu>
 
-      {/* We use 'onSuccess' now to match the new component definition */}
       <StationModal
         open={isModalOpen}
         onClose={() => setModalOpen(false)}
-        onSuccess={() => {}} // <-- FIXED!
+        onSuccess={() => {}}
         initialData={stationToEdit}
       />
 
@@ -234,9 +376,7 @@ export const AdminStationManagement: React.FC = () => {
       >
         <DialogTitle>Delete {selectedStation?.name}?</DialogTitle>
         <DialogContent>
-          <DialogContentText>
-            Are you sure? This will permanently remove the station.
-          </DialogContentText>
+          <DialogContentText>Are you sure?</DialogContentText>
         </DialogContent>
         <DialogActions>
           <Button
@@ -258,4 +398,3 @@ export const AdminStationManagement: React.FC = () => {
     </Box>
   );
 };
-export default AdminStationManagement;
