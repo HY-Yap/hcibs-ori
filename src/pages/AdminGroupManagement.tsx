@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   Box,
   Typography,
@@ -10,37 +10,40 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  Alert,
   Button,
   IconButton,
+  Menu,
+  MenuItem, // <-- This is the correct name
+  ListItemIcon,
   Dialog,
   DialogActions,
   DialogContent,
   DialogContentText,
   DialogTitle,
-  Menu,
-  MenuItem,
-  ListItemIcon,
-  Select,
-  MenuItem as DropdownItem,
+  TextField,
   FormControl,
+  InputLabel,
+  Select,
 } from "@mui/material";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
-import { getFunctions, httpsCallable } from "firebase/functions";
-import { db } from "../firebase";
-import DeleteIcon from "@mui/icons-material/Delete";
-import MoreVertIcon from "@mui/icons-material/MoreVert";
+import { httpsCallable } from "firebase/functions";
+import { db, functions as firebaseFunctions } from "../firebase";
 import { GroupModal } from "../components/GroupModal";
+import { EditScoreModal } from "../components/EditScoreModal";
+import MoreVertIcon from "@mui/icons-material/MoreVert";
+import DeleteIcon from "@mui/icons-material/Delete";
+import EditIcon from "@mui/icons-material/Edit";
 
 interface GroupData {
   id: string;
   name: string;
-  // We don't need score/status here anymore
 }
 
 interface OglUserData {
   id: string;
   displayName: string;
-  groupId?: string; // The group they are currently assigned to
+  groupId?: string;
 }
 
 export const AdminGroupManagement: React.FC = () => {
@@ -53,9 +56,10 @@ export const AdminGroupManagement: React.FC = () => {
   const [selectedGroup, setSelectedGroup] = useState<GroupData | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
-  const [assigning, setAssigning] = useState(false); // Loading state for dropdowns
+  const [assigning, setAssigning] = useState(false);
 
-  // 1. FETCH GROUPS (Real-time)
+  const [isScoreModalOpen, setScoreModalOpen] = useState(false);
+
   useEffect(() => {
     const unsubGroups = onSnapshot(collection(db, "groups"), (snap) => {
       const list = snap.docs.map(
@@ -68,15 +72,13 @@ export const AdminGroupManagement: React.FC = () => {
       );
     });
 
-    // 2. FETCH OGL USERS (Real-time)
-    // We only want users where role == 'OGL'
     const q = query(collection(db, "users"), where("role", "==", "OGL"));
     const unsubOgls = onSnapshot(q, (snap) => {
       const list = snap.docs.map(
         (d) => ({ id: d.id, ...d.data() } as OglUserData)
       );
       setOgls(list.sort((a, b) => a.displayName.localeCompare(b.displayName)));
-      setLoading(false); // Both listeners are active now
+      setLoading(false);
     });
 
     return () => {
@@ -89,23 +91,20 @@ export const AdminGroupManagement: React.FC = () => {
     if (!selectedGroup) return;
     setDeleteLoading(true);
     try {
-      const functions = getFunctions(undefined, "asia-southeast1");
-      await httpsCallable(functions, "deleteGroup")({ id: selectedGroup.id });
+      const deleteGroupFn = httpsCallable(firebaseFunctions, "deleteGroup");
+      await deleteGroupFn({ id: selectedGroup.id });
       setDeleteDialogOpen(false);
-    } catch (err) {
-      alert("Delete failed.");
+    } catch (err: any) {
+      alert("Delete failed: " + err.message);
     } finally {
       setDeleteLoading(false);
     }
   };
 
-  // --- NEW! HANDLE OGL ASSIGNMENT ---
   const handleAssignOgl = async (groupId: string, userId: string) => {
     setAssigning(true);
     try {
-      const functions = getFunctions(undefined, "asia-southeast1");
-      const assignFn = httpsCallable(functions, "assignOglToGroup");
-      // If userId is "unassigned", we send null/empty to clear it
+      const assignFn = httpsCallable(firebaseFunctions, "assignOglToGroup");
       await assignFn({
         groupId,
         userId: userId === "unassigned" ? null : userId,
@@ -117,11 +116,38 @@ export const AdminGroupManagement: React.FC = () => {
     }
   };
 
-  // Helper to find which OGL is currently assigned to a group
-  const getAssignedOglId = (groupId: string) => {
-    const ogl = ogls.find((user) => user.groupId === groupId);
-    return ogl ? ogl.id : "unassigned";
+  const handleMenuOpen = (
+    event: React.MouseEvent<HTMLElement>,
+    group: GroupData
+  ) => {
+    setAnchorEl(event.currentTarget);
+    setSelectedGroup(group);
   };
+  const handleMenuClose = () => {
+    setAnchorEl(null);
+    setSelectedGroup(null);
+  };
+  const handleEditScoreAction = () => {
+    setScoreModalOpen(true);
+    setAnchorEl(null);
+  };
+  const handleDeleteAction = () => {
+    setDeleteDialogOpen(true);
+    setAnchorEl(null);
+  };
+  const handleGroupModalSuccess = () => {
+    setModalOpen(false);
+  };
+  const handleScoreModalSuccess = () => {
+    setScoreModalOpen(false);
+  };
+
+  if (loading)
+    return (
+      <Box sx={{ display: "flex", justifyContent: "center", mt: 4 }}>
+        <CircularProgress />
+      </Box>
+    );
 
   return (
     <Box>
@@ -149,57 +175,54 @@ export const AdminGroupManagement: React.FC = () => {
                 </TableCell>
               </TableRow>
             ) : (
-              groups.map((g) => (
-                <TableRow key={g.id}>
-                  <TableCell sx={{ fontWeight: "bold" }}>{g.name}</TableCell>
-
-                  {/* --- NEW ASSIGNMENT DROPDOWN --- */}
-                  <TableCell>
-                    <FormControl fullWidth size="small">
-                      <Select
-                        value={getAssignedOglId(g.id)}
-                        onChange={(e) => handleAssignOgl(g.id, e.target.value)}
-                        disabled={assigning}
-                        displayEmpty
-                      >
-                        <DropdownItem value="unassigned">
-                          <em>Unassigned</em>
-                        </DropdownItem>
-                        {ogls.map((ogl) => {
-                          // Only show OGLs who are unassigned OR assigned to *this* group
-                          // (This prevents accidentally stealing an OGL from another group without realizing it)
-                          const isAvailable =
-                            !ogl.groupId || ogl.groupId === g.id;
-                          // Optional: You could disable them instead of hiding them if you prefer
-                          return (
-                            <DropdownItem
-                              key={ogl.id}
-                              value={ogl.id}
-                              disabled={!isAvailable}
-                            >
-                              {ogl.displayName}{" "}
-                              {ogl.groupId && ogl.groupId !== g.id
-                                ? "(Already Assigned)"
-                                : ""}
-                            </DropdownItem>
-                          );
-                        })}
-                      </Select>
-                    </FormControl>
-                  </TableCell>
-
-                  <TableCell align="right">
-                    <IconButton
-                      onClick={(e) => {
-                        setAnchorEl(e.currentTarget);
-                        setSelectedGroup(g);
-                      }}
-                    >
-                      <MoreVertIcon />
-                    </IconButton>
-                  </TableCell>
-                </TableRow>
-              ))
+              groups.map((g) => {
+                const assignedOglId =
+                  ogls.find((user) => user.groupId === g.id)?.id ||
+                  "unassigned";
+                return (
+                  <TableRow key={g.id}>
+                    <TableCell sx={{ fontWeight: "bold" }}>{g.name}</TableCell>
+                    <TableCell>
+                      <FormControl fullWidth size="small">
+                        <Select
+                          value={assignedOglId}
+                          onChange={(e) =>
+                            handleAssignOgl(g.id, e.target.value)
+                          }
+                          disabled={assigning}
+                          displayEmpty
+                        >
+                          {/* --- FIXED: DropdownItem -> MenuItem --- */}
+                          <MenuItem value="unassigned">
+                            <em>Unassigned</em>
+                          </MenuItem>
+                          {ogls.map((ogl) => {
+                            const isAvailable =
+                              !ogl.groupId || ogl.groupId === g.id;
+                            return (
+                              <MenuItem
+                                key={ogl.id}
+                                value={ogl.id}
+                                disabled={!isAvailable}
+                              >
+                                {ogl.displayName}{" "}
+                                {ogl.groupId && ogl.groupId !== g.id
+                                  ? "(Assigned)"
+                                  : ""}
+                              </MenuItem>
+                            );
+                          })}
+                        </Select>
+                      </FormControl>
+                    </TableCell>
+                    <TableCell align="right">
+                      <IconButton onClick={(e) => handleMenuOpen(e, g)}>
+                        <MoreVertIcon />
+                      </IconButton>
+                    </TableCell>
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>
@@ -208,25 +231,33 @@ export const AdminGroupManagement: React.FC = () => {
       <Menu
         anchorEl={anchorEl}
         open={Boolean(anchorEl)}
-        onClose={() => setAnchorEl(null)}
+        onClose={handleMenuClose}
       >
-        <MenuItem
-          onClick={() => {
-            setDeleteDialogOpen(true);
-            setAnchorEl(null);
-          }}
-        >
+        <MenuItem onClick={handleEditScoreAction}>
+          <ListItemIcon>
+            <EditIcon fontSize="small" />
+          </ListItemIcon>
+          Edit Score
+        </MenuItem>
+        <MenuItem onClick={handleDeleteAction}>
           <ListItemIcon>
             <DeleteIcon fontSize="small" color="error" />
           </ListItemIcon>
-          <Typography color="error">Delete</Typography>
+          <Typography color="error">Delete Group</Typography>
         </MenuItem>
       </Menu>
 
       <GroupModal
         open={isModalOpen}
         onClose={() => setModalOpen(false)}
-        onSuccess={() => {}}
+        onSuccess={handleGroupModalSuccess}
+      />
+
+      <EditScoreModal
+        open={isScoreModalOpen}
+        onClose={() => setScoreModalOpen(false)}
+        onSuccess={handleScoreModalSuccess}
+        group={selectedGroup}
       />
 
       <Dialog

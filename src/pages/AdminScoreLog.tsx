@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import type { FC } from "react";
 import {
   Box,
@@ -314,12 +314,10 @@ export const AdminScoreLog: FC = () => {
                         fontSize: "0.8rem",
                       }}
                     >
-                      {log.timestamp
-                        ?.toDate()
-                        .toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
+                      {log.timestamp?.toDate().toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
                     </TableCell>
                     <TableCell
                       sx={{ fontWeight: "medium", fontSize: "0.85rem" }}
@@ -341,10 +339,11 @@ export const AdminScoreLog: FC = () => {
                         sx={{ height: 20, fontSize: "0.65rem" }}
                       />
                     </TableCell>
+                    {/* --- UPDATED POINTS CELL --- */}
                     <TableCell align="right">
                       <Chip
-                        label={`+${log.points}`}
-                        color="success"
+                        label={log.points > 0 ? `+${log.points}` : log.points}
+                        color={log.points > 0 ? "success" : "error"}
                         size="small"
                         sx={{
                           fontWeight: "bold",

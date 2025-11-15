@@ -982,3 +982,67 @@ export const updateUserEmail = onCall(
     }
   }
 );
+
+// ===================================================================
+// 26. ADMIN MANUAL SCORE OVERRIDE
+// ===================================================================
+export const adminUpdateScore = onCall(
+  async (
+    request: CallableRequest<{
+      groupId: string;
+      points: number;
+      reason: string;
+    }>
+  ) => {
+    if (!request.auth)
+      throw new HttpsError("unauthenticated", "Must be logged in.");
+    const callerDoc = await admin
+      .firestore()
+      .collection("users")
+      .doc(request.auth.uid)
+      .get();
+    if (callerDoc.data()?.role !== "ADMIN")
+      throw new HttpsError("permission-denied", "Admin only.");
+
+    const { groupId, points, reason } = request.data;
+    if (!groupId || points === undefined || !reason) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Group ID, points, and reason are required."
+      );
+    }
+
+    if (points === 0) {
+      throw new HttpsError("invalid-argument", "Points cannot be zero.");
+    }
+
+    try {
+      const batch = admin.firestore().batch();
+      const groupRef = admin.firestore().collection("groups").doc(groupId);
+
+      // 1. Update the score (increment works for positive or negative numbers)
+      batch.update(groupRef, {
+        totalScore: admin.firestore.FieldValue.increment(points),
+        lastScoreTimestamp: admin.firestore.FieldValue.serverTimestamp(), // Keep leaderboard fair
+      });
+
+      // 2. Log the correction for audit
+      const logRef = admin.firestore().collection("scoreLog").doc();
+      batch.set(logRef, {
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        groupId,
+        points,
+        type: "ADMIN_CORRECTION",
+        sourceId: "AdminOverride",
+        awardedBy: request.auth.uid,
+        awardedByRole: "ADMIN",
+        note: reason,
+      });
+
+      await batch.commit();
+      return { success: true };
+    } catch (error: any) {
+      throw new HttpsError("internal", error.message);
+    }
+  }
+);
