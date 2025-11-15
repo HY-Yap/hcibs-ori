@@ -173,8 +173,11 @@ export const AdminGameControls: FC = () => {
         </Typography>
         <Typography paragraph>
           Resetting the game will{" "}
-          <strong>delete ALL scores, progress, and logs</strong>. It will return
-          all groups to 0 points and 'IDLE' status.
+          <strong>
+            delete ALL scores, progress, logs, and uploaded submissions
+          </strong>
+          . It will return all groups to 0 points and 'IDLE' status and remove
+          files stored under the submissions/ prefix in Cloud Storage.
         </Typography>
         <Button
           variant="outlined"
@@ -198,7 +201,8 @@ export const AdminGameControls: FC = () => {
         </DialogTitle>
         <DialogContent>
           <DialogContentText sx={{ mb: 2, fontWeight: "bold" }}>
-            This action cannot be undone.
+            This action cannot be undone. It will also delete all user-uploaded
+            submission files from Cloud Storage.
           </DialogContentText>
           <TextField
             autoFocus

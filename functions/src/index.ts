@@ -44,6 +44,8 @@ interface ScoreData {
   stationPoints?: number;
   sideQuestId?: string;
   sideQuestPoints?: number;
+  submissionUrl?: string; // <-- NEW
+  textAnswer?: string; // <-- NEW
 }
 
 // add a local alias for readability using the admin SDK types
@@ -387,45 +389,62 @@ export const updateStationStatus = onCall(
 );
 
 // ===================================================================
-// 12. SUBMIT SCORE (FIXED: Updates Queue Count & Last Location)
+// 12. SUBMIT SCORE (FIXED 'exists' syntax)
 // ===================================================================
 export const submitScore = onCall(
   async (request: CallableRequest<ScoreData>) => {
     if (!request.auth)
       throw new HttpsError("unauthenticated", "Must be logged in.");
+
     const callerDoc = await admin
       .firestore()
       .collection("users")
       .doc(request.auth.uid)
       .get();
     const callerRole = callerDoc.data()?.role;
-    if (callerRole !== "SM" && callerRole !== "ADMIN" && callerRole !== "OGL")
+    if (callerRole !== "SM" && callerRole !== "ADMIN" && callerRole !== "OGL") {
       throw new HttpsError("permission-denied", "Unauthorized.");
+    }
 
     const {
       groupId,
-      stationId,
-      stationPoints,
-      adminNote,
-      sideQuestId,
-      sideQuestPoints,
+      points,
       type,
       id,
-      points,
+      adminNote,
+      stationId,
+      stationPoints,
+      sideQuestId,
+      sideQuestPoints,
+      submissionUrl,
+      textAnswer,
     } = request.data;
+    if (!groupId) throw new HttpsError("invalid-argument", "Missing group ID.");
 
-    // OGL Security Check
+    // OGL SECURITY CHECK
     if (callerRole === "OGL") {
       if (groupId !== callerDoc.data()?.groupId)
         throw new HttpsError("permission-denied", "Wrong group.");
-      if (type === "STATION" || stationId)
-        throw new HttpsError(
-          "permission-denied",
-          "OGLs cannot self-score stations."
-        );
-    }
 
-    if (!groupId) throw new HttpsError("invalid-argument", "Missing group ID.");
+      const sId = stationId || (type === "STATION" ? id : null);
+
+      if (type === "STATION" || sId) {
+        const stationDoc = await admin
+          .firestore()
+          .collection("stations")
+          .doc(sId!)
+          .get();
+        // --- THIS IS THE FIX ---
+        // It's '.exists' (a property), NOT '.exists()' (a function)
+        if (!stationDoc.exists || stationDoc.data()?.type !== "unmanned") {
+          // -----------------------
+          throw new HttpsError(
+            "permission-denied",
+            "OGLs can only self-score UNMANNED stations."
+          );
+        }
+      }
+    }
 
     try {
       const batch = admin.firestore().batch();
@@ -433,28 +452,25 @@ export const submitScore = onCall(
       let totalPointsToAdd = 0;
       const updateData: any = {};
 
+      // Normalize inputs
       const sPoints = stationPoints ?? (type === "STATION" ? points : 0);
       const sqPoints = sideQuestPoints ?? (type === "SIDE_QUEST" ? points : 0);
       const sId = stationId ?? (type === "STATION" ? id : null);
       const sqId = sideQuestId ?? (type === "SIDE_QUEST" ? id : null);
 
-      // 1. HANDLE STATION SCORING
+      // 1. HANDLE STATION
       if (sPoints !== undefined && sPoints !== null && sPoints > 0 && sId) {
         totalPointsToAdd += sPoints;
         updateData.completedStations =
           admin.firestore.FieldValue.arrayUnion(sId);
         updateData.status = "IDLE";
-        // --- FIX 1: Save where they just were ---
         updateData.lastStationId = sId;
-        // ---------------------------------------
         updateData.destinationId = admin.firestore.FieldValue.delete();
         updateData.destinationEta = admin.firestore.FieldValue.delete();
 
-        // --- FIX 2: Decrement the station's 'arrived' count! ---
         batch.update(admin.firestore().collection("stations").doc(sId), {
           arrivedCount: admin.firestore.FieldValue.increment(-1),
         });
-        // -------------------------------------------------------
 
         const logRef = admin.firestore().collection("scoreLog").doc();
         batch.set(logRef, {
@@ -466,6 +482,8 @@ export const submitScore = onCall(
           awardedBy: request.auth.uid,
           awardedByRole: callerRole,
           note: adminNote || "",
+          submissionUrl: submissionUrl || null,
+          textAnswer: textAnswer || null,
         });
       }
 
@@ -483,9 +501,12 @@ export const submitScore = onCall(
           type: "SIDE_QUEST",
           awardedBy: request.auth.uid,
           awardedByRole: callerRole,
+          submissionUrl: submissionUrl || null,
+          textAnswer: textAnswer || null,
         });
       }
 
+      // 3. UPDATE TOTAL & TIME
       if (totalPointsToAdd > 0) {
         updateData.totalScore =
           admin.firestore.FieldValue.increment(totalPointsToAdd);
@@ -887,6 +908,41 @@ export const resetGame = onCall(async (request: CallableRequest<void>) => {
 
     await batch.commit();
 
+    // Best-effort: delete submissions documents in Firestore (if any)
+    try {
+      const subsRef = admin.firestore().collection("submissions");
+      const subsSnap = await subsRef.get();
+      if (!subsSnap.empty) {
+        const delBatch = admin.firestore().batch();
+        subsSnap.docs.forEach((d) => delBatch.delete(d.ref));
+        await delBatch.commit();
+        console.log(
+          "resetGame: deleted Firestore 'submissions' collection documents."
+        );
+      } else {
+        console.log(
+          "resetGame: no documents in 'submissions' collection to delete."
+        );
+      }
+    } catch (err: any) {
+      console.warn(
+        "resetGame: failed to delete Firestore 'submissions' docs:",
+        err?.message || err
+      );
+    }
+
+    // Best-effort: delete all files under the submissions/ prefix in Cloud Storage
+    try {
+      const bucket = admin.storage().bucket();
+      await bucket.deleteFiles({ prefix: "submissions/" });
+      console.log("resetGame: deleted storage files under 'submissions/'");
+    } catch (err: any) {
+      console.warn(
+        "resetGame: failed to delete storage files under 'submissions/':",
+        err?.message || err
+      );
+    }
+
     return { success: true, message: "Game has been COMPLETELY reset." };
   } catch (error: any) {
     throw new HttpsError("internal", error.message);
@@ -1043,6 +1099,98 @@ export const adminUpdateScore = onCall(
       return { success: true };
     } catch (error: any) {
       throw new HttpsError("internal", error.message);
+    }
+  }
+);
+
+// ===================================================================
+// 27. DELETE SUBMISSION (delete storage object + clear DB refs)
+// ===================================================================
+export const deleteSubmission = onCall(
+  async (
+    request: CallableRequest<{
+      groupId: string;
+      stationId?: string;
+      submissionUrl: string;
+    }>
+  ) => {
+    if (!request.auth)
+      throw new HttpsError("unauthenticated", "Must be logged in.");
+
+    const callerDoc = await admin
+      .firestore()
+      .collection("users")
+      .doc(request.auth.uid)
+      .get();
+    const callerRole = callerDoc.data()?.role;
+    if (!["SM", "ADMIN", "OGL"].includes(callerRole))
+      throw new HttpsError("permission-denied", "Unauthorized.");
+
+    const { groupId, stationId, submissionUrl } = request.data;
+    if (!groupId || !submissionUrl)
+      throw new HttpsError(
+        "invalid-argument",
+        "groupId and submissionUrl required."
+      );
+
+    // OGL may only operate on their own group
+    if (callerRole === "OGL" && groupId !== callerDoc.data()?.groupId)
+      throw new HttpsError(
+        "permission-denied",
+        "OGL can only delete their group's submission."
+      );
+
+    try {
+      // Parse storage path from download URL
+      let pathPart: string | undefined;
+      try {
+        const url = new URL(submissionUrl);
+        pathPart = url.pathname.split("/o/")[1]?.split("?")[0];
+      } catch {
+        pathPart = undefined;
+      }
+      if (!pathPart) {
+        throw new HttpsError(
+          "invalid-argument",
+          "Could not parse Storage path from URL."
+        );
+      }
+      const storagePath = decodeURIComponent(pathPart);
+
+      // Delete storage object (uses default bucket)
+      try {
+        await admin.storage().bucket().file(storagePath).delete();
+      } catch (err: any) {
+        // If file not found, continue to clear DB refs; don't fail entirely for missing object
+        console.warn(
+          "deleteSubmission: storage delete failed or file missing:",
+          err?.message || err
+        );
+      }
+
+      // Clear submissionUrl / textAnswer fields in any matching scoreLog entries
+      const logsQuery = admin
+        .firestore()
+        .collection("scoreLog")
+        .where("groupId", "==", groupId)
+        .where("submissionUrl", "==", submissionUrl);
+      if (stationId) {
+        // narrow by stationId when provided
+        logsQuery.where("stationId", "==", stationId);
+      }
+      const logsSnap = await logsQuery.get();
+      const batch = admin.firestore().batch();
+      logsSnap.docs.forEach((doc) => {
+        batch.update(doc.ref, {
+          submissionUrl: admin.firestore.FieldValue.delete(),
+          textAnswer: admin.firestore.FieldValue.delete(),
+        });
+      });
+      if (!logsSnap.empty) await batch.commit();
+
+      return { success: true, message: "Submission deleted." };
+    } catch (error: any) {
+      throw new HttpsError("internal", error.message || String(error));
     }
   }
 );
