@@ -29,14 +29,16 @@ import {
   orderBy,
   getDocs,
 } from "firebase/firestore";
-import { getFunctions, httpsCallable } from "firebase/functions";
-import { db } from "../firebase";
+import { httpsCallable } from "firebase/functions";
+import { db, functions as firebaseFunctions } from "../firebase";
+import { FileUpload } from "../components/FileUpload"; // <-- 1. IMPORT UPLOADER
+import { getStorage, ref as storageRef, deleteObject } from "firebase/storage";
 import AssignmentIcon from "@mui/icons-material/Assignment";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import PhotoCameraIcon from "@mui/icons-material/PhotoCamera";
 import VideocamIcon from "@mui/icons-material/Videocam";
 import SportsEsportsIcon from "@mui/icons-material/SportsEsports";
-import LockIcon from "@mui/icons-material/Lock"; // <-- NEW IMPORT
+import LockIcon from "@mui/icons-material/Lock";
 
 interface SideQuestData {
   id: string;
@@ -48,7 +50,6 @@ interface SideQuestData {
 }
 
 export const OglSideQuests: FC = () => {
-  // --- GET gameStatus ---
   const { profile, gameStatus } = useAuth();
   const [quests, setQuests] = useState<SideQuestData[]>([]);
   const [completedQuests, setCompletedQuests] = useState<string[]>([]);
@@ -59,6 +60,91 @@ export const OglSideQuests: FC = () => {
     null
   );
   const [dialogOpen, setDialogOpen] = useState(false);
+
+  // --- 2. NEW STATE FOR UPLOAD ---
+  const [submissionUrl, setSubmissionUrl] = useState<string | null>(null);
+  const [groupName, setGroupName] = useState<string | null>(null);
+
+  // helper to create safe slug from a name
+  const slugify = (s?: string | null) =>
+    (s || "")
+      .toLowerCase()
+      .trim()
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9-_]/g, "");
+
+  const getUploadPath = (quest?: SideQuestData) => {
+    const gid = profile?.groupId || "unknown-group";
+    const gslug = slugify(groupName) || gid;
+    const qid = quest?.id || "unknown-quest";
+    const qslug = slugify(quest?.name) || qid;
+    return `submissions/${gslug}/${qslug}/`;
+  };
+
+  // Helper: extract a storage path from various download URL formats
+  const extractStoragePathFromUrl = (url: string) => {
+    try {
+      const u = new URL(url);
+      let m = u.pathname.match(/\/o\/([^?]+)/);
+      if (m && m[1]) return decodeURIComponent(m[1]);
+      m = u.pathname.match(/\/b\/[^/]+\/o\/([^?]+)/);
+      if (m && m[1]) return decodeURIComponent(m[1]);
+      const parts = u.pathname.split("/");
+      if (parts.length >= 3) {
+        const maybe = parts.slice(2).join("/").split("?")[0];
+        return decodeURIComponent(maybe);
+      }
+    } catch (e) {
+      /* ignore */
+    }
+    return null;
+  };
+
+  // Remove uploaded file: try client-side delete first, then fall back to callable 'deleteSubmission'
+  const handleRemoveFile = async () => {
+    if (!submissionUrl) return;
+    if (
+      !window.confirm(
+        "Remove uploaded file? This will delete the file from storage."
+      )
+    )
+      return;
+    setSubmitting(true);
+    try {
+      const path = extractStoragePathFromUrl(submissionUrl);
+      if (path) {
+        try {
+          const storage = getStorage();
+          await deleteObject(storageRef(storage, path));
+          console.log("Client-side storage delete succeeded:", path);
+          setSubmissionUrl(null);
+          return;
+        } catch (err) {
+          console.warn("Client-side delete failed, will try server-side:", err);
+        }
+      } else {
+        console.warn(
+          "Could not parse storage path from URL, will try server-side."
+        );
+      }
+
+      // fallback to server-side deletion
+      const fn = httpsCallable(firebaseFunctions, "deleteSubmission");
+      await fn({ groupId: profile?.groupId, submissionUrl });
+      console.log(
+        "Server-side deleteSubmission succeeded for URL:",
+        submissionUrl
+      );
+      setSubmissionUrl(null);
+    } catch (err: any) {
+      console.error("Failed to remove file:", err);
+      alert(
+        `Failed to remove file: ${err?.message || String(err)}. Check console.`
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   useEffect(() => {
     const fetchQuests = async () => {
@@ -76,6 +162,7 @@ export const OglSideQuests: FC = () => {
     const unsub = onSnapshot(doc(db, "groups", profile.groupId), (docSnap) => {
       if (docSnap.exists()) {
         setCompletedQuests(docSnap.data().completedSideQuests || []);
+        setGroupName(docSnap.data().name || null);
       }
       setLoading(false);
     });
@@ -84,24 +171,41 @@ export const OglSideQuests: FC = () => {
 
   const handleQuestClick = (quest: SideQuestData) => {
     setSelectedQuest(quest);
+    setSubmissionUrl(null); // Clear any previous upload URL
     setDialogOpen(true);
+  };
+
+  const handleCloseDialog = () => {
+    setDialogOpen(false);
+    setSubmitting(false);
   };
 
   const handleSubmit = async () => {
     if (!selectedQuest || !profile?.groupId) return;
+
+    // Check if upload is required but not done
+    if (selectedQuest.submissionType !== "none" && !submissionUrl) {
+      alert("Please upload a file first!");
+      return;
+    }
+
     setSubmitting(true);
     try {
-      const functions = getFunctions(undefined, "asia-southeast1");
-      const submitScoreFn = httpsCallable(functions, "submitScore");
+      const submitScoreFn = httpsCallable(firebaseFunctions, "submitScore");
 
+      // --- THIS IS THE FIX ---
+      // We are now using the new "Unified" Score function.
+      // We must pass 'sideQuestId' and 'sideQuestPoints'
+      // (The old code was passing 'id', 'type', and 'points' which was wrong)
       await submitScoreFn({
         groupId: profile.groupId,
-        points: selectedQuest.points,
-        type: "SIDE_QUEST",
-        id: selectedQuest.id,
+        sideQuestId: selectedQuest.id,
+        sideQuestPoints: selectedQuest.points,
+        submissionUrl: submissionUrl || null,
       });
+      // -------------------------
 
-      setDialogOpen(false);
+      handleCloseDialog();
     } catch (err: any) {
       alert(`Error: ${err.message}`);
     } finally {
@@ -116,7 +220,6 @@ export const OglSideQuests: FC = () => {
       </Box>
     );
 
-  // --- NEW: BLOCK IF GAME IS STOPPED ---
   if (gameStatus !== "RUNNING") {
     return (
       <Box sx={{ textAlign: "center", mt: 8, p: 4 }}>
@@ -228,9 +331,10 @@ export const OglSideQuests: FC = () => {
         </List>
       </Paper>
 
+      {/* SUBMISSION DIALOG */}
       <Dialog
         open={dialogOpen}
-        onClose={() => setDialogOpen(false)}
+        onClose={handleCloseDialog}
         fullWidth
         maxWidth="xs"
       >
@@ -254,25 +358,73 @@ export const OglSideQuests: FC = () => {
             </Typography>
           </Box>
 
+          {/* --- 4. USE THE FILE UPLOADER --- */}
           {selectedQuest?.submissionType !== "none" && (
-            <Typography
-              variant="caption"
-              display="block"
-              textAlign="center"
-              sx={{ mt: 2, color: "text.secondary" }}
-            >
-              (File upload will be added in the next update)
-            </Typography>
+            <Box sx={{ mt: 2 }}>
+              <Typography variant="subtitle1" gutterBottom>
+                Upload Proof:
+              </Typography>
+              {/* Show uploaded file banner if present, otherwise show uploader */}
+              {submissionUrl ? (
+                <Paper
+                  variant="outlined"
+                  sx={{
+                    p: 1,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    bgcolor: "#e8f5e9",
+                    mt: 1,
+                  }}
+                >
+                  <Box>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      File uploaded
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      <a
+                        href={submissionUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        View submission
+                      </a>
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: "flex", gap: 1 }}>
+                    <Button
+                      size="small"
+                      color="error"
+                      variant="outlined"
+                      onClick={handleRemoveFile}
+                      disabled={submitting}
+                    >
+                      Remove file
+                    </Button>
+                  </Box>
+                </Paper>
+              ) : (
+                <FileUpload
+                  // human-readable path using group and quest names (slugged)
+                  uploadPath={getUploadPath(selectedQuest || undefined)}
+                  onUploadComplete={(url) => setSubmissionUrl(url)}
+                />
+              )}
+            </Box>
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDialogOpen(false)} disabled={submitting}>
+          <Button onClick={handleCloseDialog} disabled={submitting}>
             Cancel
           </Button>
           <Button
             onClick={handleSubmit}
             variant="contained"
-            disabled={submitting}
+            disabled={
+              submitting ||
+              // Disable button if upload is required but not yet complete
+              (selectedQuest?.submissionType !== "none" && !submissionUrl)
+            }
           >
             {submitting ? <CircularProgress size={24} /> : "Claim Points"}
           </Button>
