@@ -27,7 +27,7 @@ import { getFunctions, httpsCallable } from "firebase/functions";
 import { db } from "../firebase";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
-import MoreVertIcon from "@mui/icons-material/MoreVert"; // <-- NEW IMPORT
+import MoreVertIcon from "@mui/icons-material/MoreVert";
 import {
   SideQuestModal,
   type SideQuestData,
@@ -39,13 +39,11 @@ export const AdminSideQuestManagement: React.FC = () => {
   const [isModalOpen, setModalOpen] = useState(false);
   const [questToEdit, setQuestToEdit] = useState<SideQuestData | null>(null);
 
-  // --- NEW STANDARD MENU STATE ---
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [selectedQuest, setSelectedQuest] = useState<SideQuestData | null>(
     null
   );
 
-  // Delete state
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   const fetchQuests = async () => {
@@ -67,7 +65,6 @@ export const AdminSideQuestManagement: React.FC = () => {
     fetchQuests();
   }, []);
 
-  // --- MENU HANDLERS ---
   const handleMenuOpen = (
     event: React.MouseEvent<HTMLElement>,
     quest: SideQuestData
@@ -77,10 +74,8 @@ export const AdminSideQuestManagement: React.FC = () => {
   };
   const handleMenuClose = () => {
     setAnchorEl(null);
-    // Do not nullify selectedQuest here, we might need it for the action
   };
 
-  // --- ACTION HANDLERS ---
   const handleAddClick = () => {
     setQuestToEdit(null);
     setModalOpen(true);
@@ -95,7 +90,6 @@ export const AdminSideQuestManagement: React.FC = () => {
   };
 
   const handleDeleteAction = () => {
-    // Just open the confirmation dialog, don't delete yet
     setDeleteDialogOpen(true);
     handleMenuClose();
   };
@@ -141,11 +135,23 @@ export const AdminSideQuestManagement: React.FC = () => {
                   <TableCell sx={{ fontWeight: "bold" }}>{q.name}</TableCell>
                   <TableCell>{q.points}</TableCell>
                   <TableCell>
-                    <Chip label={q.submissionType.toUpperCase()} size="small" />
+                    {/* --- THIS CHIP IS NOW STYLED --- */}
+                    <Chip
+                      label={q.submissionType.toUpperCase()}
+                      size="small"
+                      color={
+                        q.submissionType === "photo"
+                          ? "primary"
+                          : q.submissionType === "video"
+                          ? "secondary"
+                          : "default"
+                      }
+                      variant="outlined"
+                      sx={{ fontWeight: "bold" }}
+                    />
                   </TableCell>
                   <TableCell>{q.isSmManaged ? "SM" : "Self"}</TableCell>
                   <TableCell align="right">
-                    {/* --- STANDARDIZED ACTION MENU --- */}
                     <IconButton onClick={(e) => handleMenuOpen(e, q)}>
                       <MoreVertIcon />
                     </IconButton>
@@ -157,7 +163,6 @@ export const AdminSideQuestManagement: React.FC = () => {
         </Table>
       </TableContainer>
 
-      {/* --- THE SHARED MENU --- */}
       <Menu
         anchorEl={anchorEl}
         open={Boolean(anchorEl)}
