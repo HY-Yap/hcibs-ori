@@ -59,6 +59,7 @@ This repository serves both as the production codebase for the current year and 
   - Open/close stations (temporary or permanent)
   - Monitor relevant group movement and statuses (OTW, arrived)
   - View ETA information
+  - Lunch break mode
 
 - **Scoring Tools**
 
