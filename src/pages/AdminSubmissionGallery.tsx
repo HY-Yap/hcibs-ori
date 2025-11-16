@@ -15,7 +15,7 @@ import {
   Button,
 } from "@mui/material";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
-import { db, auth, functions } from "../firebase";
+import { db, functions as firebaseFunctions } from "../firebase";
 import { httpsCallable } from "firebase/functions";
 import CollectionsIcon from "@mui/icons-material/Collections";
 import ArticleIcon from "@mui/icons-material/Article";
@@ -140,33 +140,19 @@ export const AdminSubmissionGallery: FC = () => {
     setZipLoading(true);
     setZipError(null);
     try {
-      const user = auth.currentUser;
-      if (!user) throw new Error("Not authenticated.");
+      // Standard Callable Function (Secure & Simple)
+      // Note: functions is already initialized with 'asia-southeast1' in ../firebase
+      const zipFn = httpsCallable(firebaseFunctions, "zipTaskSubmissions");
 
-      const token = await user.getIdToken();
+      const result = await zipFn({ taskId, taskName });
+      const { url } = result.data as any;
 
-      // Call as raw HTTP instead of httpsCallable
-      const response = await fetch(
-        "https://asia-southeast1-hcibso.cloudfunctions.net/zipTaskSubmissions",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ data: { taskId, taskName } }),
-        }
-      );
+      if (!url) throw new Error("No URL returned.");
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${await response.text()}`);
-      }
-
-      const result = await response.json();
-      window.open(result.result.url, "_blank");
+      window.open(url, "_blank");
     } catch (err: any) {
       console.error("ZIP Error:", err);
-      setZipError(err.message);
+      setZipError(err.message || "Failed to create ZIP.");
     } finally {
       setZipLoading(false);
     }

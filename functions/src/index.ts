@@ -7,7 +7,7 @@ import { setGlobalOptions } from "firebase-functions/v2";
 import * as admin from "firebase-admin";
 import archiver from "archiver"; // Default import for zipping!
 import { file as makeTmpFile } from "tmp-promise"; // For temporary file storage
-import { onRequest } from "firebase-functions/v2/https";
+import * as fs from "fs";
 
 // Set region for all v2 functions (asia-southeast1)
 setGlobalOptions({ region: "asia-southeast1" });
@@ -1277,107 +1277,144 @@ export const convertHeicSubmission = onCall(
 );
 
 // ===================================================================
-// 29. ZIP TASK SUBMISSIONS (FIXED)
+// 29. ZIP TASK SUBMISSIONS (SECURE V2)
 // ===================================================================
-const zipOptions: CallableOptions = {
-  timeoutSeconds: 540,
-  memory: "1GiB",
-  invoker: "public",
-};
-
-export const zipTaskSubmissions = onRequest(
+export const zipTaskSubmissions = onCall(
+  // V2 Options: We can set timeout/memory right here!
   {
     timeoutSeconds: 540,
     memory: "1GiB",
-    cors: true, // This enables CORS for onRequest
+    region: "asia-southeast1",
   },
-  async (req, res) => {
-    // Handle CORS preflight
-    res.set("Access-Control-Allow-Origin", "*");
-    res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
-    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-
-    if (req.method === "OPTIONS") {
-      res.status(204).send("");
-      return;
+  async (request: CallableRequest<{ taskId: string; taskName: string }>) => {
+    // 1. AUTH CHECK (Now works perfectly because it's onCall)
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Must be logged in.");
     }
 
+    const callerDoc = await admin
+      .firestore()
+      .collection("users")
+      .doc(request.auth.uid)
+      .get();
+    if (callerDoc.data()?.role !== "ADMIN") {
+      throw new HttpsError("permission-denied", "Admin only.");
+    }
+
+    const { taskId, taskName } = request.data;
+    if (!taskId)
+      throw new HttpsError("invalid-argument", "taskId is required.");
+
+    console.log(`Starting ZIP for task ${taskId} (${taskName})`);
+
     try {
-      // Extract data from request body
-      const { taskId, taskName } = req.body.data;
-
-      if (!taskId || !taskName) {
-        res.status(400).json({ error: "Missing taskId or taskName" });
-        return;
-      }
-
-      // Fetch submissions for this task
-      const logsSnap = await admin
+      // 2. FETCH LOGS (Your logic)
+      // Note: We query for stationId AND sourceId to catch both stations and side quests
+      const qStation = admin
         .firestore()
         .collection("scoreLog")
-        .where("submissionUrl", "!=", null)
-        .get();
+        .where("stationId", "==", taskId)
+        .where("submissionUrl", "!=", null);
+      const qQuest = admin
+        .firestore()
+        .collection("scoreLog")
+        .where("sourceId", "==", taskId)
+        .where("submissionUrl", "!=", null);
 
-      const urls: string[] = [];
-      logsSnap.forEach((doc) => {
+      const [stationLogs, questLogs] = await Promise.all([
+        qStation.get(),
+        qQuest.get(),
+      ]);
+      const allLogs = [...stationLogs.docs, ...questLogs.docs];
+
+      // Deduplicate by submissionUrl to be safe
+      const uniqueUrls = new Set<string>();
+      const submissions = [];
+
+      for (const doc of allLogs) {
         const data = doc.data();
-        const sourceId = data.stationId || data.sourceId;
-        if (sourceId === taskId && data.submissionUrl) {
-          urls.push(data.submissionUrl);
+        if (data.submissionUrl && !uniqueUrls.has(data.submissionUrl)) {
+          uniqueUrls.add(data.submissionUrl);
+          submissions.push(data);
         }
-      });
-
-      if (urls.length === 0) {
-        res
-          .status(404)
-          .json({ error: "No file submissions found for this task" });
-        return;
       }
 
-      // Create temp file and ZIP
-      const { path: tmpFilePath, cleanup } = await makeTmpFile({
+      if (submissions.length === 0) {
+        throw new HttpsError("not-found", "No files to zip.");
+      }
+
+      // 3. CREATE TEMP FILE
+      const { path: tmpZipPath, cleanup } = await makeTmpFile({
         postfix: ".zip",
       });
-      const output = require("fs").createWriteStream(tmpFilePath);
+      const output = fs.createWriteStream(tmpZipPath);
       const archive = archiver("zip", { zlib: { level: 9 } });
 
       archive.pipe(output);
 
-      // Download and add each file to archive
-      for (let i = 0; i < urls.length; i++) {
-        const url = urls[i];
-        const fileName = `submission_${i + 1}_${
-          url.split("/").pop()?.split("?")[0] || "file"
-        }`;
+      const bucket = admin.storage().bucket();
+      let filesAdded = 0;
+
+      // 4. ADD FILES TO ZIP
+      for (const sub of submissions) {
         try {
-          const response = await fetch(url);
-          if (!response.ok) continue;
-          const buffer = Buffer.from(await response.arrayBuffer());
-          archive.append(buffer, { name: fileName });
-        } catch (err) {
-          console.error(`Failed to fetch ${url}:`, err);
+          const url = new URL(sub.submissionUrl);
+          // Extract path from URL (works for standard Firebase Storage URLs)
+          const pathPart = url.pathname.split("/o/")[1]?.split("?")[0];
+
+          if (pathPart) {
+            const storagePath = decodeURIComponent(pathPart);
+            const file = bucket.file(storagePath);
+
+            // Download file buffer
+            const [buffer] = await file.download();
+
+            // Create a nice folder structure inside the zip: "GroupName/filename.jpg"
+            // (We use groupId if name isn't readily available to save a read)
+            const fileName = `${sub.groupId}/${storagePath.split("/").pop()}`;
+
+            archive.append(buffer, { name: fileName });
+            filesAdded++;
+          }
+        } catch (e: any) {
+          console.warn(`Skipping file ${sub.submissionUrl}:`, e.message);
         }
       }
 
       await archive.finalize();
-      await new Promise((resolve) => output.on("close", resolve));
+      await new Promise<void>((resolve, reject) => {
+        output.on("close", resolve);
+        output.on("error", reject);
+        archive.on("error", reject);
+      });
 
-      // Upload to Firebase Storage
-      const bucket = admin.storage().bucket();
-      const zipFileName = `${taskName.replace(/\s+/g, "_")}_${Date.now()}.zip`;
-      const zipFile = bucket.file(`zips/${zipFileName}`);
+      // 5. UPLOAD ZIP
+      const safeTaskName = taskName.replace(/[^a-z0-9]/gi, "_").toLowerCase();
+      // Add timestamp to prevent name collisions
+      const zipPath = `zips/${safeTaskName}_${taskId}_${Date.now()}.zip`;
+      const zipFile = bucket.file(zipPath);
 
-      await zipFile.save(require("fs").readFileSync(tmpFilePath));
-      await cleanup();
+      await zipFile.save(fs.readFileSync(tmpZipPath), {
+        metadata: { contentType: "application/zip" },
+      });
 
-      // Make public and get signed URL
-      await zipFile.makePublic();
-      const publicUrl = `https://storage.googleapis.com/${bucket.name}/${zipFile.name}`;
+      // Clean up temp file
+      cleanup();
 
-      res.json({ result: { url: publicUrl } });
+      // 6. GENERATE SECURE SIGNED URL (Expires in 15 mins)
+      // This replaces makePublic()
+      const [signedUrl] = await zipFile.getSignedUrl({
+        action: "read",
+        expires: Date.now() + 15 * 60 * 1000, // 15 minutes
+      });
+
+      return { success: true, url: signedUrl };
     } catch (error: any) {
-      console.error("ZIP error:", error);
-      res.status(500).json({ error: error.message });
+      console.error("Zip Error:", error);
+      throw new HttpsError(
+        "internal",
+        error.message || "Zip generation failed"
+      );
     }
   }
 );
