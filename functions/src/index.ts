@@ -1459,24 +1459,32 @@ export const getUserEmailFromUsername = onCall(
 // ===================================================================
 // 31. PUBLIC LEADERBOARD - Allows guests to view leaderboard
 // ===================================================================
+let leaderboardCache: { data: any; timestamp: number } | null = null;
+const CACHE_TTL = 5000; // 5 seconds
+
 export const getPublicLeaderboard = onRequest(
   {
     cors: true,
   },
   async (req, res) => {
-    // Set CORS headers
     res.set("Access-Control-Allow-Origin", "*");
     res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
     res.set("Access-Control-Allow-Headers", "Content-Type");
 
-    // Handle preflight
     if (req.method === "OPTIONS") {
       res.status(204).send("");
       return;
     }
 
     try {
-      // Fetch groups sorted by score (desc) then by timestamp (asc)
+      // Check cache first
+      const now = Date.now();
+      if (leaderboardCache && now - leaderboardCache.timestamp < CACHE_TTL) {
+        res.json(leaderboardCache.data);
+        return;
+      }
+
+      // Fetch fresh data
       const groupsSnapshot = await admin
         .firestore()
         .collection("groups")
@@ -1490,7 +1498,12 @@ export const getPublicLeaderboard = onRequest(
         totalScore: doc.data().totalScore || 0,
       }));
 
-      res.json({ leaderboard });
+      const responseData = { leaderboard };
+
+      // Update cache
+      leaderboardCache = { data: responseData, timestamp: now };
+
+      res.json(responseData);
     } catch (error: any) {
       console.error("Error fetching leaderboard:", error);
       res.status(500).json({ error: "Failed to fetch leaderboard" });

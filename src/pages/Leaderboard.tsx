@@ -15,8 +15,9 @@ import {
   Chip,
   useTheme,
 } from "@mui/material";
-import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
-import { db } from "../firebase";
+// REMOVE these Firestore imports:
+// import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
+// import { db } from "../firebase";
 import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -35,37 +36,34 @@ export const LeaderboardPage: FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // --- NEW QUERY: Sort by Score (DESC), then by Time (ASC) ---
-    const q = query(
-      collection(db, "groups"),
-      orderBy("totalScore", "desc"),
-      orderBy("lastScoreTimestamp", "asc")
-    );
+    // Fetch leaderboard from public Cloud Function
+    const fetchLeaderboard = async () => {
+      try {
+        const response = await fetch(
+          "https://asia-southeast1-hcibso.cloudfunctions.net/getPublicLeaderboard"
+        );
 
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const leaderboardData = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        })) as GroupData[];
-        setGroups(leaderboardData);
-        setLoading(false);
-      },
-      (err) => {
-        console.error("Error fetching leaderboard:", err);
-        // If we need an index, show a helpful message
-        if (err.message.includes("requires an index")) {
-          setError(
-            "Missing Index. Open DevTools Console (F12) and click the link from Firebase to create it."
-          );
-        } else {
-          setError("Failed to load live scores.");
+        if (!response.ok) {
+          throw new Error("Failed to fetch leaderboard");
         }
+
+        const data = await response.json();
+        setGroups(data.leaderboard);
+        setLoading(false);
+      } catch (err: any) {
+        console.error("Error fetching leaderboard:", err);
+        setError("Failed to load leaderboard. Please try again later.");
         setLoading(false);
       }
-    );
-    return () => unsubscribe();
+    };
+
+    // Fetch initially
+    fetchLeaderboard();
+
+    // Refresh every 5 seconds for "live" updates
+    const interval = setInterval(fetchLeaderboard, 5000);
+
+    return () => clearInterval(interval);
   }, []);
 
   if (loading)
@@ -75,20 +73,10 @@ export const LeaderboardPage: FC = () => {
       </Box>
     );
 
-  // Show error with a clickable link if it's an index error (helps you debug!)
   if (error)
     return (
       <Alert severity="error" sx={{ mt: 4, mx: 2 }}>
-        {error.includes("Missing Index") ? (
-          <>
-            <strong>Missing Database Index!</strong>
-            <br />
-            Please open your browser console (F12) to find the link to create
-            it.
-          </>
-        ) : (
-          error
-        )}
+        {error}
       </Alert>
     );
 
@@ -129,7 +117,7 @@ export const LeaderboardPage: FC = () => {
           color="text.secondary"
           sx={{ maxWidth: 500, mx: "auto" }}
         >
-          Updates automatically in real-time. Ties broken by who scored first.
+          Updates every 5 seconds. Ties broken by who scored first.
         </Typography>
       </Box>
 
@@ -179,9 +167,6 @@ export const LeaderboardPage: FC = () => {
           <TableBody component={motion.tbody} layout>
             <AnimatePresence>
               {groups.map((group, index) => {
-                // --- SIMPLIFIED RANKING ---
-                // Because our query now handles the exact order perfectly,
-                // we can just use the list position as the rank!
                 const rank = index + 1;
 
                 let rankDisplay: React.ReactNode = rank;
