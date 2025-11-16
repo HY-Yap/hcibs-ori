@@ -184,8 +184,10 @@ export const OglDashboard: FC = () => {
             sx={{
               textTransform: "uppercase",
               letterSpacing: 1,
-              opacity: 0.8,
+              opacity: 0.9,
               fontSize: "0.875rem",
+              color: "white",
+              mb: 1,
             }}
           >
             Current Score
@@ -196,13 +198,26 @@ export const OglDashboard: FC = () => {
               justifyContent: "center",
               alignItems: "center",
               gap: 1,
+              py: 1,
             }}
           >
-            <EmojiEventsIcon sx={{ fontSize: 48, color: "gold" }} />
+            <EmojiEventsIcon
+              sx={{
+                fontSize: 48,
+                color: "#ffd700",
+                filter: "drop-shadow(2px 2px 4px rgba(0,0,0,0.3))",
+              }}
+            />
             <Typography
               variant="h1"
               component="div"
-              sx={{ fontWeight: 800, fontSize: "4rem", lineHeight: 1 }}
+              sx={{
+                fontWeight: 800,
+                fontSize: "4rem",
+                lineHeight: 1,
+                color: "#ffffff",
+                textShadow: "3px 3px 10px rgba(0,0,0,0.5)", // Stronger shadow for better contrast
+              }}
             >
               {groupData?.totalScore.toLocaleString() || 0}
             </Typography>
@@ -228,8 +243,9 @@ export const OglDashboard: FC = () => {
         Your Progress
       </Typography>
       <Box sx={{ display: "flex", gap: 2 }}>
-        {/* Ring 1 */}
+        {/* Ring 1 - Match AdminDashboard card style */}
         <Paper
+          elevation={1} // Changed from default to match AdminDashboard
           sx={{
             flex: 1,
             p: 2,
@@ -250,6 +266,7 @@ export const OglDashboard: FC = () => {
         </Paper>
         {/* Ring 2 */}
         <Paper
+          elevation={1} // Changed from default
           sx={{
             flex: 1,
             p: 2,
@@ -285,7 +302,9 @@ export const OglDashboard: FC = () => {
           >
             <CampaignIcon color="error" /> Recent Announcements
           </Typography>
-          <Paper elevation={2} sx={{ borderRadius: 3, overflow: "hidden" }}>
+          <Paper elevation={1} sx={{ borderRadius: 3, overflow: "hidden" }}>
+            {" "}
+            {/* Changed from elevation={2} */}
             <List disablePadding>
               {announcements.map((ann, index) => (
                 <React.Fragment key={ann.id}>
@@ -299,10 +318,9 @@ export const OglDashboard: FC = () => {
                           hour: "2-digit",
                           minute: "2-digit",
                         })}
-                      // --- FIX FOR LONG TEXT ---
                       primaryTypographyProps={{
                         fontWeight: 500,
-                        component: "div", // Allows for block-level styling if needed
+                        component: "div",
                         style: {
                           whiteSpace: "pre-wrap",
                           wordBreak: "break-word",

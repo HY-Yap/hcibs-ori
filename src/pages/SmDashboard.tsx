@@ -209,32 +209,40 @@ export const SmDashboard: React.FC = () => {
           alignItems: "center",
           flexWrap: "wrap",
           gap: 2,
+          bgcolor: "#fef5e7", // Warm cream
+          border: "2px solid #eec45c", // Gold border
         }}
       >
         <Box>
-          {/* --- UPDATED HEADER SECTION --- */}
           <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 1 }}>
-            <Typography variant="h4" sx={{ mb: 0 }}>
+            <Typography variant="h4" sx={{ mb: 0, color: "#473321" }}>
               {stationData?.name}
             </Typography>
             <Button
               variant="text"
               size="small"
-              color="inherit"
               startIcon={<ExitToAppIcon />}
               onClick={handleLeaveStation}
-              sx={{ opacity: 0.6, "&:hover": { opacity: 1 } }}
+              sx={{
+                color: "#8d6e63",
+                opacity: 0.7,
+                "&:hover": { opacity: 1 },
+              }}
             >
               Change
             </Button>
           </Box>
-          {/* ------------------------------ */}
           <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-            <Typography variant="subtitle1">Status:</Typography>
+            <Typography variant="subtitle1" sx={{ color: "#473321" }}>
+              Status:
+            </Typography>
             <Chip
               label={(status || "OPEN").replace("_", " ")}
-              color={status === "OPEN" ? "success" : "error"}
-              sx={{ fontWeight: "bold" }}
+              sx={{
+                fontWeight: "bold",
+                bgcolor: status === "OPEN" ? "#4caf50" : "#c62828",
+                color: "white",
+              }}
             />
           </Box>
         </Box>
@@ -242,12 +250,17 @@ export const SmDashboard: React.FC = () => {
           {status === "OPEN" ? (
             <Button
               variant="contained"
-              color="warning"
               startIcon={<RestaurantIcon />}
               disabled={actionLoading}
               onClick={() => {
                 setConfirmAction("LUNCH");
                 setConfirmOpen(true);
+              }}
+              sx={{
+                bgcolor: "#ff9800",
+                "&:hover": {
+                  bgcolor: "#f57c00",
+                },
               }}
             >
               Lunch
@@ -255,10 +268,15 @@ export const SmDashboard: React.FC = () => {
           ) : status === "CLOSED_LUNCH" ? (
             <Button
               variant="contained"
-              color="success"
               startIcon={<LockOpenIcon />}
               disabled={actionLoading}
               onClick={() => handleStatusChange("OPEN")}
+              sx={{
+                bgcolor: "#4caf50",
+                "&:hover": {
+                  bgcolor: "#45a049",
+                },
+              }}
             >
               Re-open
             </Button>
@@ -266,12 +284,19 @@ export const SmDashboard: React.FC = () => {
           {status !== "CLOSED_PERMANENTLY" && (
             <Button
               variant="outlined"
-              color="error"
               startIcon={<LockIcon />}
               disabled={actionLoading}
               onClick={() => {
                 setConfirmAction("CLOSE");
                 setConfirmOpen(true);
+              }}
+              sx={{
+                borderColor: "#c62828",
+                color: "#c62828",
+                "&:hover": {
+                  borderColor: "#b71c1c",
+                  bgcolor: "rgba(198, 40, 40, 0.04)",
+                },
               }}
             >
               Close
@@ -293,15 +318,27 @@ export const SmDashboard: React.FC = () => {
           gap: 3,
         }}
       >
-        <Paper sx={{ flex: 1, p: 2, bgcolor: "#f8f9fa", minHeight: 300 }}>
-          <Typography variant="h6" gutterBottom>
+        {/* On The Way Panel - Warm beige */}
+        <Paper
+          sx={{
+            flex: 1,
+            p: 2,
+            bgcolor: "#f5ebe0", // Warm beige
+            border: "2px solid #d4a574", // Light bronze
+            minHeight: 300,
+          }}
+        >
+          <Typography variant="h6" gutterBottom sx={{ color: "#473321" }}>
             🚍 On The Way ({onTheWayGroups.length})
           </Typography>
-          <Divider />
+          <Divider sx={{ borderColor: "#d4a574" }} />
           <List>
             {onTheWayGroups.length === 0 ? (
               <ListItem>
-                <ListItemText secondary="No groups traveling here." />
+                <ListItemText
+                  secondary="No groups traveling here."
+                  secondaryTypographyProps={{ sx: { color: "#8d6e63" } }}
+                />
               </ListItem>
             ) : (
               onTheWayGroups.map((group) => (
@@ -317,6 +354,8 @@ export const SmDashboard: React.FC = () => {
                   <ListItemText
                     primary={group.name}
                     secondary={`ETA: ${group.destinationEta || "Unknown"}`}
+                    primaryTypographyProps={{ sx: { color: "#473321" } }}
+                    secondaryTypographyProps={{ sx: { color: "#8d6e63" } }}
                   />
                 </ListItem>
               ))
@@ -324,15 +363,27 @@ export const SmDashboard: React.FC = () => {
           </List>
         </Paper>
 
-        <Paper sx={{ flex: 1, p: 2, bgcolor: "#e3f2fd", minHeight: 300 }}>
-          <Typography variant="h6" gutterBottom>
+        {/* Arrived Panel - Warm yellow/cream */}
+        <Paper
+          sx={{
+            flex: 1,
+            p: 2,
+            bgcolor: "#fff8e1", // Warm light yellow
+            border: "2px solid #eec45c", // Gold
+            minHeight: 300,
+          }}
+        >
+          <Typography variant="h6" gutterBottom sx={{ color: "#473321" }}>
             🧘 Arrived & Waiting ({arrivedGroups.length})
           </Typography>
-          <Divider />
+          <Divider sx={{ borderColor: "#eec45c" }} />
           <List>
             {arrivedGroups.length === 0 ? (
               <ListItem>
-                <ListItemText secondary="Queue is empty." />
+                <ListItemText
+                  secondary="Queue is empty."
+                  secondaryTypographyProps={{ sx: { color: "#8d6e63" } }}
+                />
               </ListItem>
             ) : (
               arrivedGroups.map((group) => (
@@ -347,11 +398,17 @@ export const SmDashboard: React.FC = () => {
                   }}
                   secondaryAction={
                     <Button
-                      variant="outlined"
+                      variant="contained"
                       size="small"
                       onClick={() => {
                         setSelectedGroup({ id: group.id, name: group.name });
                         setActionModalOpen(true);
+                      }}
+                      sx={{
+                        bgcolor: "#b97539",
+                        "&:hover": {
+                          bgcolor: "#a66832",
+                        },
                       }}
                     >
                       Score
@@ -367,6 +424,8 @@ export const SmDashboard: React.FC = () => {
                     <ListItemText
                       primary={group.name}
                       secondary="Ready for activity"
+                      primaryTypographyProps={{ sx: { color: "#473321" } }}
+                      secondaryTypographyProps={{ sx: { color: "#8d6e63" } }}
                     />
                   </ListItemButton>
                 </ListItem>
@@ -376,12 +435,13 @@ export const SmDashboard: React.FC = () => {
         </Paper>
       </Box>
 
+      {/* Dialog colors */}
       <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)}>
-        <DialogTitle>
+        <DialogTitle sx={{ color: "#473321" }}>
           {confirmAction === "LUNCH" ? "Go on Lunch?" : "Close Station?"}
         </DialogTitle>
         <DialogContent>
-          <DialogContentText>
+          <DialogContentText sx={{ color: "#473321" }}>
             {confirmAction === "LUNCH"
               ? "Mark station as CLOSED (LUNCH)?"
               : "WARNING: Permanently close station?"}
@@ -391,6 +451,7 @@ export const SmDashboard: React.FC = () => {
           <Button
             onClick={() => setConfirmOpen(false)}
             disabled={actionLoading}
+            sx={{ color: "#8d6e63" }}
           >
             Cancel
           </Button>
@@ -402,16 +463,20 @@ export const SmDashboard: React.FC = () => {
                   : "CLOSED_PERMANENTLY"
               )
             }
-            color={confirmAction === "CLOSE" ? "error" : "warning"}
             variant="contained"
             disabled={actionLoading}
+            sx={{
+              bgcolor: confirmAction === "CLOSE" ? "#c62828" : "#ff9800",
+              "&:hover": {
+                bgcolor: confirmAction === "CLOSE" ? "#b71c1c" : "#f57c00",
+              },
+            }}
           >
             Confirm
           </Button>
         </DialogActions>
       </Dialog>
 
-      {/* Only mount SmActionModal when we have required props to avoid TS/runtime errors */}
       {selectedGroup && stationId && (
         <SmActionModal
           open={actionModalOpen}

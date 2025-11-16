@@ -134,19 +134,46 @@ export const AdminDashboard: FC = () => {
           flexDirection: { xs: "column", md: "row" },
         }}
       >
-        <Paper sx={{ flex: 1, p: 3, textAlign: "center", bgcolor: "#e3f2fd" }}>
-          <Typography variant="h3" color="primary" sx={{ fontWeight: "bold" }}>
+        {/* Groups Traveling Card - Using your bronze/gold theme */}
+        <Paper
+          sx={{
+            flex: 1,
+            p: 3,
+            textAlign: "center",
+            bgcolor: "#fef5e7", // Warm cream
+            border: "2px solid #eec45c", // Your gold
+          }}
+        >
+          <Typography
+            variant="h3"
+            sx={{
+              fontWeight: "bold",
+              color: "#b97539", // Your bronze
+            }}
+          >
             {groups.filter((g) => g.status === "TRAVELING").length}
           </Typography>
           <Typography variant="subtitle1" color="text.secondary">
             Groups Traveling
           </Typography>
         </Paper>
-        <Paper sx={{ flex: 1, p: 3, textAlign: "center", bgcolor: "#fff3e0" }}>
+
+        {/* Stations on Lunch Card - Using warm browns */}
+        <Paper
+          sx={{
+            flex: 1,
+            p: 3,
+            textAlign: "center",
+            bgcolor: "#f5ebe0", // Lighter warm beige
+            border: "2px solid #d4a574", // Light bronze border
+          }}
+        >
           <Typography
             variant="h3"
-            color="warning.main"
-            sx={{ fontWeight: "bold" }}
+            sx={{
+              fontWeight: "bold",
+              color: "#8d6e63", // Your secondary brown text
+            }}
           >
             {stations.filter((s) => s.status === "CLOSED_LUNCH").length}
           </Typography>
@@ -156,8 +183,14 @@ export const AdminDashboard: FC = () => {
         </Paper>
       </Box>
 
+      {/* Announcement Card - Updated colors */}
       <Paper
-        sx={{ p: 3, mb: 4, bgcolor: "#f3e5f5", border: "1px solid #e1bee7" }}
+        sx={{
+          p: 3,
+          mb: 4,
+          bgcolor: "#fff8e1", // Warm light yellow
+          border: "2px solid #eec45c", // Your gold
+        }}
       >
         <Typography
           variant="h6"
@@ -166,10 +199,12 @@ export const AdminDashboard: FC = () => {
             display: "flex",
             alignItems: "center",
             gap: 1,
-            color: "secondary.main",
+            color: "#473321", // Your dark brown
+            fontWeight: 600,
           }}
         >
-          <CampaignIcon /> Broadcast Announcement
+          <CampaignIcon sx={{ color: "#b97539" }} /> {/* Bronze icon */}
+          Broadcast Announcement
         </Typography>
         <Box sx={{ display: "flex", gap: 2 }}>
           <TextField
@@ -179,11 +214,21 @@ export const AdminDashboard: FC = () => {
             value={announcement}
             onChange={(e) => setAnnouncement(e.target.value)}
             size="small"
-            sx={{ bgcolor: "white" }}
+            sx={{
+              bgcolor: "white",
+              "& .MuiOutlinedInput-root": {
+                "&:hover fieldset": {
+                  borderColor: "#b97539", // Bronze on hover
+                },
+                "&.Mui-focused fieldset": {
+                  borderColor: "#b97539", // Bronze when focused
+                },
+              },
+            }}
           />
           <Button
             variant="contained"
-            color="secondary"
+            color="primary" // Use your bronze primary color
             endIcon={<SendIcon />}
             disabled={!announcement || sending}
             onClick={handleSendAnnouncement}

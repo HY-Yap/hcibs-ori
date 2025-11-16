@@ -81,7 +81,6 @@ export const AdminGameControls: FC = () => {
     );
 
   return (
-    // --- ADDED textAlign: 'center' TO MAIN BOX ---
     <Box sx={{ maxWidth: 600, mx: "auto", textAlign: "center" }}>
       <Typography
         variant="h4"
@@ -92,26 +91,32 @@ export const AdminGameControls: FC = () => {
           justifyContent: "center",
           gap: 1,
           mb: 4,
+          color: "#473321", // Your dark brown
         }}
       >
-        <SettingsIcon fontSize="large" /> Game Controls
+        <SettingsIcon fontSize="large" sx={{ color: "#b97539" }} /> Game
+        Controls
       </Typography>
 
       <Paper
         sx={{
           p: 4,
           mb: 4,
-          bgcolor: gameStatus === "RUNNING" ? "#e8f5e9" : "#ffebee",
+          // Updated colors to match your theme
+          bgcolor: gameStatus === "RUNNING" ? "#fef5e7" : "#f5ebe0", // Warm cream vs beige
+          border: `3px solid ${
+            gameStatus === "RUNNING" ? "#eec45c" : "#d4a574"
+          }`, // Gold vs light bronze
         }}
       >
-        <Typography variant="h6" gutterBottom>
+        <Typography variant="h6" gutterBottom sx={{ color: "#473321" }}>
           CURRENT STATUS
         </Typography>
         <Typography
           variant="h2"
           sx={{
             fontWeight: "bold",
-            color: gameStatus === "RUNNING" ? "success.main" : "error.main",
+            color: gameStatus === "RUNNING" ? "#b97539" : "#8d6e63", // Bronze vs brown
             mb: 3,
           }}
         >
@@ -120,24 +125,38 @@ export const AdminGameControls: FC = () => {
         {gameStatus === "STOPPED" ? (
           <Button
             variant="contained"
-            color="success"
             size="large"
             startIcon={<PlayArrowIcon />}
             disabled={actionLoading}
             onClick={() => handleToggleStatus("RUNNING")}
-            sx={{ py: 1.5, px: 4, fontSize: "1.2rem" }}
+            sx={{
+              py: 1.5,
+              px: 4,
+              fontSize: "1.2rem",
+              bgcolor: "#b97539", // Your bronze
+              "&:hover": {
+                bgcolor: "#a66832", // Darker bronze
+              },
+            }}
           >
             START GAME
           </Button>
         ) : (
           <Button
             variant="contained"
-            color="error"
             size="large"
             startIcon={<StopIcon />}
             disabled={actionLoading}
             onClick={() => handleToggleStatus("STOPPED")}
-            sx={{ py: 1.5, px: 4, fontSize: "1.2rem" }}
+            sx={{
+              py: 1.5,
+              px: 4,
+              fontSize: "1.2rem",
+              bgcolor: "#8d6e63", // Your brown
+              "&:hover": {
+                bgcolor: "#6d4c41", // Darker brown
+              },
+            }}
           >
             STOP GAME
           </Button>
@@ -149,29 +168,30 @@ export const AdminGameControls: FC = () => {
         </Typography>
       </Paper>
 
+      {/* Danger Zone - Keep red for warning, but soften it */}
       <Box
         sx={{
           mt: 8,
           p: 3,
-          border: "1px solid #d32f2f",
-          borderRadius: 1,
-          backgroundColor: "#fff5f5",
+          border: "2px solid #c62828", // Darker red
+          borderRadius: 2,
+          backgroundColor: "#ffebee", // Light red background
         }}
       >
         <Typography
           variant="h5"
-          color="error"
           gutterBottom
           sx={{
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             gap: 1,
+            color: "#c62828", // Darker red for warning
           }}
         >
           <WarningIcon /> Danger Zone
         </Typography>
-        <Typography paragraph>
+        <Typography paragraph sx={{ color: "#473321" }}>
           Resetting the game will{" "}
           <strong>
             delete ALL scores, progress, logs, and uploaded submissions
@@ -181,17 +201,25 @@ export const AdminGameControls: FC = () => {
         </Typography>
         <Button
           variant="outlined"
-          color="error"
+          sx={{
+            color: "#c62828",
+            borderColor: "#c62828",
+            "&:hover": {
+              borderColor: "#b71c1c",
+              bgcolor: "#ffebee",
+            },
+          }}
           onClick={() => setResetOpen(true)}
         >
           RESET GAME COMPLETELY
         </Button>
       </Box>
 
+      {/* Dialog - keep mostly the same but update button colors */}
       <Dialog open={resetOpen} onClose={() => setResetOpen(false)}>
         <DialogTitle
           sx={{
-            color: "error.main",
+            color: "#c62828",
             display: "flex",
             alignItems: "center",
             gap: 1,
@@ -211,17 +239,36 @@ export const AdminGameControls: FC = () => {
             placeholder="Type RESET to confirm"
             value={resetConfirm}
             onChange={(e) => setResetConfirm(e.target.value)}
+            sx={{
+              "& .MuiOutlinedInput-root": {
+                "&:hover fieldset": {
+                  borderColor: "#b97539",
+                },
+                "&.Mui-focused fieldset": {
+                  borderColor: "#b97539",
+                },
+              },
+            }}
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setResetOpen(false)} disabled={actionLoading}>
+          <Button
+            onClick={() => setResetOpen(false)}
+            disabled={actionLoading}
+            sx={{ color: "#8d6e63" }}
+          >
             Cancel
           </Button>
           <Button
             onClick={handleResetGame}
-            color="error"
             variant="contained"
             disabled={actionLoading || resetConfirm !== "RESET"}
+            sx={{
+              bgcolor: "#c62828",
+              "&:hover": {
+                bgcolor: "#b71c1c",
+              },
+            }}
           >
             {actionLoading ? (
               <CircularProgress size={24} />
