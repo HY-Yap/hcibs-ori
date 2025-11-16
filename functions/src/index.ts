@@ -1418,3 +1418,39 @@ export const zipTaskSubmissions = onCall(
     }
   }
 );
+
+// ===================================================================
+// 30. GET USER EMAIL FROM USERNAME (for Login)
+// ===================================================================
+export const getUserEmailFromUsername = onCall(
+  async (request: CallableRequest<{ username: string }>) => {
+    const { username } = request.data;
+    if (!username)
+      throw new HttpsError("invalid-argument", "Username is required.");
+
+    try {
+      // Use ADMIN SDK methods (not client SDK)
+      const userSnapshot = await admin
+        .firestore()
+        .collection("users")
+        .where("username", "==", username)
+        .limit(1)
+        .get();
+
+      // Check if we found a user
+      if (userSnapshot.empty) {
+        throw new HttpsError("not-found", "No user found with that username.");
+      }
+
+      // Return the user's email
+      const userData = userSnapshot.docs[0].data();
+      if (!userData.email) {
+        throw new HttpsError("internal", "User found, but email is missing.");
+      }
+
+      return { email: userData.email };
+    } catch (error: any) {
+      throw new HttpsError("internal", error.message);
+    }
+  }
+);

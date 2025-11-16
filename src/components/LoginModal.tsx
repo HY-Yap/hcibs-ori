@@ -1,9 +1,15 @@
 import React, { useState } from "react";
-import { Modal, Box, Typography, TextField, Button } from "@mui/material";
+import {
+  Modal,
+  Box,
+  Typography,
+  TextField,
+  Button,
+  CircularProgress,
+} from "@mui/material";
 import { signInWithEmailAndPassword } from "firebase/auth";
-import { auth } from "../firebase"; // We only need auth
-import { db } from "../firebase";
-import { collection, query, where, limit, getDocs } from "firebase/firestore";
+import { auth, functions } from "../firebase"; // <-- Import 'functions'
+import { httpsCallable } from "firebase/functions";
 
 const style = {
   position: "absolute" as "absolute",
@@ -29,57 +35,56 @@ export const LoginModal: React.FC<LoginModalProps> = ({ open, onClose }) => {
   const [emailOrUsername, setEmailOrUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false); // Added loading state
 
-  // Create a helper to close the modal and reset state
   const handleClose = () => {
     onClose();
     setError("");
     setEmailOrUsername("");
     setPassword("");
+    setLoading(false);
   };
 
   const handleLogin = async () => {
     setError("");
+    setLoading(true);
 
-    let email = emailOrUsername.trim();
+    let emailToLogin = emailOrUsername.trim();
+
     try {
-      // If user typed a username (no @), look up their email in Firestore
-      if (!email.includes("@")) {
-        const q = query(
-          collection(db, "users"),
-          where("username", "==", email),
-          limit(1)
-        );
-        const snap = await getDocs(q);
-        if (snap.empty) {
-          setError("No account found for that username.");
-          return;
-        }
-        const userData = snap.docs[0].data() as any;
-        // try common email fields
-        email = userData.email || userData.emailAddress || userData.authEmail;
-        if (!email) {
-          setError("Found user but no email is associated with that username.");
-          return;
+      // 1. If it's not an email, ask the server to find the email
+      if (!emailToLogin.includes("@")) {
+        try {
+          const getUserEmailFn = httpsCallable(
+            functions,
+            "getUserEmailFromUsername"
+          );
+          // Note: Ensure 'getUserEmailFromUsername' exists in your functions/src/index.ts!
+          const result = await getUserEmailFn({ username: emailToLogin });
+          emailToLogin = (result.data as any).email;
+        } catch (err: any) {
+          // If the function fails (e.g., user not found), throw specific error
+          if (err.message) throw new Error(err.message);
+          throw new Error("Could not find a user with that username.");
         }
       }
 
-      try {
-        // 1. Sign in the user
-        await signInWithEmailAndPassword(auth, email, password);
+      // 2. Sign in using the resolved email
+      await signInWithEmailAndPassword(auth, emailToLogin, password);
 
-        // 2. That's it! Just close the modal.
-        handleClose();
-        // The AuthContext will automatically see the login
-        // and update the Header for us.
-      } catch (err) {
-        console.error(err);
-        // show firebase error if available, otherwise generic
-        setError((err as any)?.message || "Failed to login. Please check your credentials.");
-      }
-    } catch (err) {
+      handleClose();
+    } catch (err: any) {
       console.error(err);
-      setError("Failed to login. Please check your email and password.");
+      // Handle specific firebase errors for better UX
+      if (err.code === "auth/wrong-password") {
+        setError("Incorrect password.");
+      } else if (err.code === "auth/user-not-found") {
+        setError("No account found.");
+      } else {
+        setError(err.message || "Failed to login.");
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -100,6 +105,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ open, onClose }) => {
           fullWidth
           value={emailOrUsername}
           onChange={(e) => setEmailOrUsername(e.target.value)}
+          disabled={loading}
         />
 
         <TextField
@@ -109,6 +115,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ open, onClose }) => {
           fullWidth
           value={password}
           onChange={(e) => setPassword(e.target.value)}
+          disabled={loading}
         />
 
         {error && (
@@ -122,8 +129,9 @@ export const LoginModal: React.FC<LoginModalProps> = ({ open, onClose }) => {
           color="primary"
           fullWidth
           onClick={handleLogin}
+          disabled={loading || !emailOrUsername || !password}
         >
-          Sign In
+          {loading ? <CircularProgress size={24} color="inherit" /> : "Sign In"}
         </Button>
       </Box>
     </Modal>
