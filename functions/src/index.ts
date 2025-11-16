@@ -1,5 +1,6 @@
 import {
   onCall,
+  onRequest,
   HttpsError,
   CallableOptions,
 } from "firebase-functions/v2/https";
@@ -1451,6 +1452,48 @@ export const getUserEmailFromUsername = onCall(
       return { email: userData.email };
     } catch (error: any) {
       throw new HttpsError("internal", error.message);
+    }
+  }
+);
+
+// ===================================================================
+// 31. PUBLIC LEADERBOARD - Allows guests to view leaderboard
+// ===================================================================
+export const getPublicLeaderboard = onRequest(
+  {
+    cors: true,
+  },
+  async (req, res) => {
+    // Set CORS headers
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type");
+
+    // Handle preflight
+    if (req.method === "OPTIONS") {
+      res.status(204).send("");
+      return;
+    }
+
+    try {
+      // Fetch groups sorted by score (desc) then by timestamp (asc)
+      const groupsSnapshot = await admin
+        .firestore()
+        .collection("groups")
+        .orderBy("totalScore", "desc")
+        .orderBy("lastScoreTimestamp", "asc")
+        .get();
+
+      const leaderboard = groupsSnapshot.docs.map((doc) => ({
+        id: doc.id,
+        name: doc.data().name,
+        totalScore: doc.data().totalScore || 0,
+      }));
+
+      res.json({ leaderboard });
+    } catch (error: any) {
+      console.error("Error fetching leaderboard:", error);
+      res.status(500).json({ error: "Failed to fetch leaderboard" });
     }
   }
 );

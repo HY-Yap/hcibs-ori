@@ -18,7 +18,7 @@ import { OglSideQuests } from "./pages/OglSideQuests";
 import { AdminGameControls } from "./pages/AdminGameControls";
 import { AdminScoreLog } from "./pages/AdminScoreLog";
 import { ProfilePage } from "./pages/Profile";
-import { AdminSubmissionGallery } from './pages/AdminSubmissionGallery';
+import { AdminSubmissionGallery } from "./pages/AdminSubmissionGallery";
 
 // Import all our components
 import { Layout } from "./components/Layout";
@@ -59,7 +59,10 @@ function App() {
             />
             <Route path="admin/controls" element={<AdminGameControls />} />
             <Route path="admin/scorelog" element={<AdminScoreLog />} />
-            <Route path="admin/submissions" element={<AdminSubmissionGallery />} />
+            <Route
+              path="admin/submissions"
+              element={<AdminSubmissionGallery />}
+            />
           </Route>
 
           {/* SM ROUTES (protected) */}
