@@ -145,14 +145,32 @@ const Header: React.FC = () => {
 
   const drawer = (
     <Box sx={{ textAlign: "center" }}>
-      <Typography variant="h6" sx={{ my: 2 }} onClick={handleDrawerToggle}>
-        HCIBSO Amazing Race
-      </Typography>
+      {" "}
+      {/* Remove onClick from here */}
+      {/* Mobile drawer header with logo - DON'T close drawer when clicking logo */}
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center", // This centers the content
+          gap: 1.5,
+          my: 2,
+          px: 2, // Add padding so it doesn't touch edges
+        }}
+      >
+        <Box
+          component="img"
+          src="/logo.png"
+          alt="HCIBSO Logo"
+          sx={{ height: 32, width: "auto" }}
+        />
+        <Typography variant="h6">HCIBSO Amazing Race</Typography>
+      </Box>
       <Divider />
-      <List>
+      {/* Mobile menu items - these should close drawer */}
+      <List onClick={handleDrawerToggle}>
         {allLinks.map((item) => {
           if (item.type === "link") {
-            // Standard Link Logic
             return (
               <ListItem key={item.name} disablePadding>
                 <ListItemButton
@@ -160,51 +178,47 @@ const Header: React.FC = () => {
                   to={item.isExternal ? undefined : item.path}
                   href={item.isExternal ? item.path : undefined}
                   target={item.isExternal ? "_blank" : undefined}
-                  rel={item.isExternal ? "noopener noreferrer" : undefined}
-                  onClick={item.isExternal ? () => {} : handleDrawerToggle}
-                  sx={{ textAlign: "center" }}
                 >
                   <ListItemText primary={item.name} />
                 </ListItemButton>
               </ListItem>
             );
           } else {
-            // Dropdown Logic
-            const isOpen = mobileMenuOpen[item.name] || false;
             return (
               <Fragment key={item.name}>
-                <ListItemButton
-                  onClick={() => handleMobileMenuToggle(item.name)}
-                  sx={{ textAlign: "center", justifyContent: "center" }}
-                >
-                  <ListItemText primary={item.name} />
-                  {isOpen ? <ExpandLess /> : <ExpandMore />}
-                </ListItemButton>
-                <Collapse in={isOpen} timeout="auto" unmountOnExit>
-                  <List
-                    component="div"
-                    disablePadding
-                    sx={{ backgroundColor: "rgba(0,0,0,0.04)" }}
+                {/* Prevent event bubbling for collapsible menus */}
+                <ListItem disablePadding>
+                  <ListItemButton
+                    onClick={(e) => {
+                      e.stopPropagation(); // Don't close drawer when expanding menu
+                      handleMobileMenuToggle(item.name);
+                    }}
                   >
+                    <ListItemText primary={item.name} />
+                    {mobileMenuOpen[item.name] ? (
+                      <ExpandLess />
+                    ) : (
+                      <ExpandMore />
+                    )}
+                  </ListItemButton>
+                </ListItem>
+                <Collapse
+                  in={mobileMenuOpen[item.name]}
+                  timeout="auto"
+                  unmountOnExit
+                >
+                  <List component="div" disablePadding>
                     {item.items.map((subItem, index) =>
                       subItem.isDivider ? (
                         <Divider key={index} />
                       ) : (
                         <ListItemButton
                           key={subItem.name}
+                          sx={{ pl: 4 }}
                           component={subItem.isExternal ? "a" : Link}
                           to={subItem.isExternal ? undefined : subItem.path}
                           href={subItem.isExternal ? subItem.path : undefined}
                           target={subItem.isExternal ? "_blank" : undefined}
-                          rel={
-                            subItem.isExternal
-                              ? "noopener noreferrer"
-                              : undefined
-                          }
-                          onClick={
-                            subItem.isExternal ? () => {} : handleDrawerToggle
-                          }
-                          sx={{ pl: 4, textAlign: "center" }}
                         >
                           <ListItemText primary={subItem.name} />
                         </ListItemButton>
@@ -216,35 +230,17 @@ const Header: React.FC = () => {
             );
           }
         })}
-        <Divider sx={{ my: 2 }} />
-        <ListItem disablePadding>
-          {currentUser ? (
-            <ListItemButton
-              onClick={() => {
-                handleLogout();
-                handleDrawerToggle();
-              }}
-              sx={{ justifyContent: "center" }}
-            >
-              <Button variant="contained" color="secondary" fullWidth>
-                Logout
-              </Button>
-            </ListItemButton>
-          ) : (
-            <ListItemButton
-              onClick={() => {
-                handleLoginOpen();
-                handleDrawerToggle();
-              }}
-              sx={{ justifyContent: "center" }}
-            >
-              <Button variant="contained" color="primary" fullWidth>
-                Login
-              </Button>
-            </ListItemButton>
-          )}
-        </ListItem>
       </List>
+      <Divider />
+      {currentUser ? (
+        <Button fullWidth onClick={handleLogout} sx={{ my: 2 }}>
+          Logout
+        </Button>
+      ) : (
+        <Button fullWidth onClick={handleLoginOpen} sx={{ my: 2 }}>
+          Login
+        </Button>
+      )}
     </Box>
   );
 
@@ -262,19 +258,36 @@ const Header: React.FC = () => {
             <MenuIcon />
           </IconButton>
 
-          <Typography
-            variant="h6"
-            component={Link}
-            to="/"
+          {/* DESKTOP NAVBAR LOGO - THIS IS THE IMPORTANT PART YOU MISSED */}
+          <Box
             sx={{
               flexGrow: 1,
-              display: { xs: "block", sm: "block" },
-              textDecoration: "none",
-              color: "inherit",
+              display: "flex",
+              alignItems: "center",
+              gap: 1.5,
+              cursor: "pointer",
             }}
+            component={Link}
+            to="/"
+            style={{ textDecoration: "none", color: "inherit" }}
           >
-            HCIBSO Amazing Race
-          </Typography>
+            <Box
+              component="img"
+              src="/logo.png"
+              alt="HCIBSO Logo"
+              sx={{
+                height: { xs: 32, sm: 40 },
+                width: "auto",
+                objectFit: "contain",
+              }}
+            />
+            <Typography
+              variant="h6"
+              sx={{ display: { xs: "none", sm: "block" } }}
+            >
+              HCIBSO Amazing Race
+            </Typography>
+          </Box>
 
           <Box
             sx={{
