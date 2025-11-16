@@ -107,6 +107,7 @@ const Header: React.FC = () => {
           { name: "DIVIDER", path: "", isDivider: true },
           { name: "Game Controls", path: "/admin/controls" },
           { name: "Score Log", path: "/admin/scorelog" },
+          { name: "Submission Gallery", path: "/admin/submissions" },
         ],
       },
     ];

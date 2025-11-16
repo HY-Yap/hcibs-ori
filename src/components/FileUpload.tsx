@@ -7,20 +7,16 @@ import {
   Typography,
   IconButton,
   Alert,
-  Paper, // <-- THE FIX: Added Paper here
+  Paper,
 } from "@mui/material";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
-import { storage } from "../firebase"; // Import our storage instance
-// Removed unused useAuth import
+import { storage } from "../firebase";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import CloseIcon from "@mui/icons-material/Close";
 
 interface FileUploadProps {
-  // We need to know where to upload the file
-  // e.g. "submissions/group1_id/quest_id/"
   uploadPath: string;
-  // A function to call when the upload is 100% complete
   onUploadComplete: (downloadUrl: string) => void;
 }
 
@@ -33,13 +29,45 @@ export const FileUpload: FC<FileUploadProps> = ({
   const [isUploading, setIsUploading] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isConverting, setIsConverting] = useState(false);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
-      setError(null);
-      setIsComplete(false);
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || !e.target.files[0]) return;
+    let selectedFile = e.target.files[0];
+    setError(null);
+    setIsComplete(false);
+
+    // Check if file is HEIC and convert to JPEG
+    const isHeic = /\.heic$/i.test(selectedFile.name);
+    if (isHeic) {
+      setIsConverting(true);
+      try {
+        const heic2any = (await import("heic2any")).default;
+        const convertedBlob = await heic2any({
+          blob: selectedFile,
+          toType: "image/jpeg",
+          quality: 0.9,
+        });
+        // heic2any can return Blob or Blob[], handle both
+        const blob = Array.isArray(convertedBlob)
+          ? convertedBlob[0]
+          : convertedBlob;
+        // Create a new File object with .jpg extension
+        selectedFile = new File(
+          [blob],
+          selectedFile.name.replace(/\.heic$/i, ".jpg"),
+          { type: "image/jpeg" }
+        );
+      } catch (err) {
+        console.error("HEIC conversion failed:", err);
+        setError("Failed to convert HEIC file. Please use JPEG or PNG.");
+        setIsConverting(false);
+        return;
+      }
+      setIsConverting(false);
     }
+
+    setFile(selectedFile);
   };
 
   const handleUpload = () => {
@@ -88,6 +116,18 @@ export const FileUpload: FC<FileUploadProps> = ({
     setIsComplete(false);
     setUploadProgress(0);
   };
+
+  // If converting, show progress indicator
+  if (isConverting) {
+    return (
+      <Box sx={{ width: "100%" }}>
+        <LinearProgress />
+        <Typography variant="caption" align="center" display="block">
+          Converting HEIC to JPEG...
+        </Typography>
+      </Box>
+    );
+  }
 
   // If upload is complete, just show success
   if (isComplete) {

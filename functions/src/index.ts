@@ -1,6 +1,13 @@
-import { onCall, HttpsError } from "firebase-functions/v2/https";
+import {
+  onCall,
+  HttpsError,
+  CallableOptions,
+} from "firebase-functions/v2/https";
 import { setGlobalOptions } from "firebase-functions/v2";
 import * as admin from "firebase-admin";
+import archiver from "archiver"; // Default import for zipping!
+import { file as makeTmpFile } from "tmp-promise"; // For temporary file storage
+import * as fs from "fs";
 
 // Set region for all v2 functions (asia-southeast1)
 setGlobalOptions({ region: "asia-southeast1" });
@@ -44,8 +51,8 @@ interface ScoreData {
   stationPoints?: number;
   sideQuestId?: string;
   sideQuestPoints?: number;
-  submissionUrl?: string; // <-- NEW
-  textAnswer?: string; // <-- NEW
+  submissionUrl?: string;
+  textAnswer?: string;
 }
 
 // add a local alias for readability using the admin SDK types
@@ -1191,6 +1198,223 @@ export const deleteSubmission = onCall(
       return { success: true, message: "Submission deleted." };
     } catch (error: any) {
       throw new HttpsError("internal", error.message || String(error));
+    }
+  }
+);
+
+// ===================================================================
+// 28. CONVERT HEIC SUBMISSION SERVER-SIDE
+// ===================================================================
+export const convertHeicSubmission = onCall(
+  async (request: CallableRequest<{ submissionUrl: string }>) => {
+    if (!request.auth)
+      throw new HttpsError("unauthenticated", "Must be logged in.");
+
+    const { submissionUrl } = request.data;
+    if (!submissionUrl)
+      throw new HttpsError("invalid-argument", "submissionUrl required.");
+
+    try {
+      // parse storage path from download URL
+      let pathPart: string | undefined;
+      try {
+        const url = new URL(submissionUrl);
+        pathPart = url.pathname.split("/o/")[1]?.split("?")[0];
+      } catch {
+        pathPart = undefined;
+      }
+      if (!pathPart) {
+        throw new HttpsError(
+          "invalid-argument",
+          "Could not parse Storage path from URL."
+        );
+      }
+      const storagePath = decodeURIComponent(pathPart);
+
+      const bucket = admin.storage().bucket();
+      const file = bucket.file(storagePath);
+      const [exists] = await file.exists();
+      if (!exists) {
+        throw new HttpsError("not-found", "Source file not found in storage.");
+      }
+
+      // download original
+      const [buffer] = await file.download();
+
+      // dynamic require of sharp (so deployment fails only if dependency missing)
+      let sharp: any;
+      try {
+        sharp = require("sharp");
+      } catch (err) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Server conversion dependency missing. Run `npm install sharp` in functions/ and redeploy."
+        );
+      }
+
+      // Convert to JPEG
+      const jpegBuffer = await sharp(buffer).jpeg({ quality: 90 }).toBuffer();
+
+      // Save converted file next to original with .jpg extension
+      const newPath = storagePath.replace(/\.[^/.]+$/, "") + ".jpg";
+      const newFile = bucket.file(newPath);
+      await newFile.save(jpegBuffer, {
+        metadata: { contentType: "image/jpeg" },
+      });
+
+      // Make the new file readable — generate signed URL (long lived)
+      const [signedUrl] = await newFile.getSignedUrl({
+        action: "read",
+        expires: "03-09-2491", // adjust if you want different expiry
+      });
+
+      return { success: true, url: signedUrl, storagePath: newPath };
+    } catch (error: any) {
+      console.error("convertHeicSubmission error:", error);
+      throw new HttpsError("internal", error.message || String(error));
+    }
+  }
+);
+
+// ===================================================================
+// 29. ZIP TASK SUBMISSIONS (SECURE V2)
+// ===================================================================
+export const zipTaskSubmissions = onCall(
+  // V2 Options: We can set timeout/memory right here!
+  {
+    timeoutSeconds: 540,
+    memory: "1GiB",
+    region: "asia-southeast1",
+  },
+  async (request: CallableRequest<{ taskId: string; taskName: string }>) => {
+    // 1. AUTH CHECK (Now works perfectly because it's onCall)
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Must be logged in.");
+    }
+
+    const callerDoc = await admin
+      .firestore()
+      .collection("users")
+      .doc(request.auth.uid)
+      .get();
+    if (callerDoc.data()?.role !== "ADMIN") {
+      throw new HttpsError("permission-denied", "Admin only.");
+    }
+
+    const { taskId, taskName } = request.data;
+    if (!taskId)
+      throw new HttpsError("invalid-argument", "taskId is required.");
+
+    console.log(`Starting ZIP for task ${taskId} (${taskName})`);
+
+    try {
+      // 2. FETCH LOGS (Your logic)
+      // Note: We query for stationId AND sourceId to catch both stations and side quests
+      const qStation = admin
+        .firestore()
+        .collection("scoreLog")
+        .where("stationId", "==", taskId)
+        .where("submissionUrl", "!=", null);
+      const qQuest = admin
+        .firestore()
+        .collection("scoreLog")
+        .where("sourceId", "==", taskId)
+        .where("submissionUrl", "!=", null);
+
+      const [stationLogs, questLogs] = await Promise.all([
+        qStation.get(),
+        qQuest.get(),
+      ]);
+      const allLogs = [...stationLogs.docs, ...questLogs.docs];
+
+      // Deduplicate by submissionUrl to be safe
+      const uniqueUrls = new Set<string>();
+      const submissions = [];
+
+      for (const doc of allLogs) {
+        const data = doc.data();
+        if (data.submissionUrl && !uniqueUrls.has(data.submissionUrl)) {
+          uniqueUrls.add(data.submissionUrl);
+          submissions.push(data);
+        }
+      }
+
+      if (submissions.length === 0) {
+        throw new HttpsError("not-found", "No files to zip.");
+      }
+
+      // 3. CREATE TEMP FILE
+      const { path: tmpZipPath, cleanup } = await makeTmpFile({
+        postfix: ".zip",
+      });
+      const output = fs.createWriteStream(tmpZipPath);
+      const archive = archiver("zip", { zlib: { level: 9 } });
+
+      archive.pipe(output);
+
+      const bucket = admin.storage().bucket();
+      let filesAdded = 0;
+
+      // 4. ADD FILES TO ZIP
+      for (const sub of submissions) {
+        try {
+          const url = new URL(sub.submissionUrl);
+          // Extract path from URL (works for standard Firebase Storage URLs)
+          const pathPart = url.pathname.split("/o/")[1]?.split("?")[0];
+
+          if (pathPart) {
+            const storagePath = decodeURIComponent(pathPart);
+            const file = bucket.file(storagePath);
+
+            // Download file buffer
+            const [buffer] = await file.download();
+
+            // Create a nice folder structure inside the zip: "GroupName/filename.jpg"
+            // (We use groupId if name isn't readily available to save a read)
+            const fileName = `${sub.groupId}/${storagePath.split("/").pop()}`;
+
+            archive.append(buffer, { name: fileName });
+            filesAdded++;
+          }
+        } catch (e: any) {
+          console.warn(`Skipping file ${sub.submissionUrl}:`, e.message);
+        }
+      }
+
+      await archive.finalize();
+      await new Promise<void>((resolve, reject) => {
+        output.on("close", resolve);
+        output.on("error", reject);
+        archive.on("error", reject);
+      });
+
+      // 5. UPLOAD ZIP
+      const safeTaskName = taskName.replace(/[^a-z0-9]/gi, "_").toLowerCase();
+      // Add timestamp to prevent name collisions
+      const zipPath = `zips/${safeTaskName}_${taskId}_${Date.now()}.zip`;
+      const zipFile = bucket.file(zipPath);
+
+      await zipFile.save(fs.readFileSync(tmpZipPath), {
+        metadata: { contentType: "application/zip" },
+      });
+
+      // Clean up temp file
+      cleanup();
+
+      // 6. GENERATE SECURE SIGNED URL (Expires in 15 mins)
+      // This replaces makePublic()
+      const [signedUrl] = await zipFile.getSignedUrl({
+        action: "read",
+        expires: Date.now() + 15 * 60 * 1000, // 15 minutes
+      });
+
+      return { success: true, url: signedUrl };
+    } catch (error: any) {
+      console.error("Zip Error:", error);
+      throw new HttpsError(
+        "internal",
+        error.message || "Zip generation failed"
+      );
     }
   }
 );
