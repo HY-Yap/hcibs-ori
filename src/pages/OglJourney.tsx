@@ -302,44 +302,56 @@ export const OglJourney: FC = () => {
         </Typography>
 
         {isManned ? (
-          <Paper sx={{ p: 3, mt: 3, bgcolor: "#e3f2fd" }}>
-            <Typography variant="h6" gutterBottom>
+          <Paper
+            sx={{
+              p: 3,
+              mt: 3,
+              bgcolor: "#fff8e1",
+              border: "2px solid #eec45c",
+            }}
+          >
+            {" "}
+            {/* Changed from #e3f2fd */}
+            <Typography variant="h6" gutterBottom sx={{ color: "#473321" }}>
               WAITING FOR STATION MASTER
             </Typography>
-            <Typography>
+            <Typography sx={{ color: "#8d6e63" }}>
               Please wait for the SM to conduct the activity and award your
               points.
             </Typography>
           </Paper>
         ) : (
           // --- UPDATED UNMANNED STATION FORM ---
-          <Paper sx={{ p: 3, mt: 3, bgcolor: "#fff3e0", textAlign: "left" }}>
-            <Typography variant="h6" gutterBottom>
+          <Paper sx={{ p: 3, mt: 3, bgcolor: "#fef5e7", textAlign: "left" }}>
+            {" "}
+            {/* Changed from #fff3e0 to match your cream */}
+            <Typography variant="h6" gutterBottom sx={{ color: "#473321" }}>
               UNMANNED STATION
             </Typography>
             <Box
               sx={{
                 p: 2,
-                bgcolor: "#f0f7ff",
+                bgcolor: "#fff8e1", // Warm yellow instead of blue
                 borderRadius: 2,
-                border: "1px solid #cce5ff",
+                border: "2px solid #eec45c", // Your gold border
                 textAlign: "center",
                 mb: 2,
               }}
             >
               <Typography
                 variant="subtitle1"
-                color="primary.main"
-                sx={{ fontWeight: "bold" }}
+                sx={{ fontWeight: "bold", color: "#b97539" }} // Bronze instead of primary.main
               >
                 REWARD: {currentStation?.points || 50} POINTS
               </Typography>
             </Box>
-            <Typography paragraph sx={{ whiteSpace: "pre-wrap" }}>
+            <Typography
+              paragraph
+              sx={{ whiteSpace: "pre-wrap", color: "#473321" }}
+            >
               {currentStation?.description ||
                 "No description for this station."}
             </Typography>
-
             {/* We'll show BOTH options. The task description should tell them which to use. */}
             <Box
               sx={{ display: "flex", flexDirection: "column", gap: 2, mt: 3 }}
@@ -361,7 +373,8 @@ export const OglJourney: FC = () => {
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "space-between",
-                    bgcolor: "#e8f5e9",
+                    bgcolor: "#e8f5e9", // Keep green for success
+                    borderColor: "#4caf50",
                   }}
                 >
                   <Box>
@@ -396,14 +409,18 @@ export const OglJourney: FC = () => {
                   onUploadComplete={(url) => setSubmissionUrl(url)}
                 />
               )}
-
               <Button
                 variant="contained"
-                color="success"
-                // require an uploaded file before enabling submit
+                sx={{
+                  mt: 1,
+                  py: 1.5,
+                  bgcolor: "#4caf50", // Keep green for success action
+                  "&:hover": {
+                    bgcolor: "#45a049",
+                  },
+                }}
                 disabled={actionLoading || !submissionUrl}
                 onClick={() => handleSubmitUnmanned(currentStation!)}
-                sx={{ mt: 1, py: 1.5 }}
               >
                 Submit & Complete Station
               </Button>
@@ -496,7 +513,7 @@ export const OglJourney: FC = () => {
       >
         <Typography variant="h5">Select Next Station</Typography>
         <Button
-          variant="outlined"
+          variant="contained"
           color="warning"
           startIcon={<RestaurantIcon />}
           disabled={actionLoading}
@@ -536,10 +553,10 @@ export const OglJourney: FC = () => {
                     <Avatar
                       sx={{
                         bgcolor: isCompleted
-                          ? "success.light"
+                          ? "#4caf50" // Keep green for completed
                           : isOpen
-                          ? "primary.main"
-                          : "error.main",
+                          ? "#b97539" // Your bronze instead of primary.main
+                          : "#c62828", // Darker red for closed
                       }}
                     >
                       <LocationOnIcon />

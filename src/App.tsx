@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { CssBaseline, Box, Typography } from "@mui/material"; // Import Box and Typography for the 404 page
+import { CssBaseline, Box, Typography, ThemeProvider } from "@mui/material"; // Import Box and Typography for the 404 page
+import { theme } from "./theme";
 
 // Import all our pages
 import { HomePage } from "./pages/HomePage";
@@ -27,68 +28,66 @@ import { ProtectedRoute } from "./components/ProtectedRoute";
 
 function App() {
   return (
-    <BrowserRouter>
-      <CssBaseline />
-
-      {/* AuthRedirectHandler component is GONE */}
-
-      <Routes>
-        <Route path="/" element={<Layout />}>
-          {/* GUEST ROUTES (public) */}
-          <Route index element={<HomePage />} />
-          <Route path="leaderboard" element={<LeaderboardPage />} />
-          <Route path="stations" element={<StationsPage />} />
-          <Route path="sidequests" element={<SideQuestsPage />} />
-
-          {/* Protected profile route for logged-in roles (ADMIN, SM, OGL) */}
-          <Route
-            element={<ProtectedRoute allowedRoles={["ADMIN", "SM", "OGL"]} />}
-          >
-            <Route path="profile" element={<ProfilePage />} />
-          </Route>
-
-          {/* ADMIN ROUTES (protected) */}
-          <Route element={<ProtectedRoute allowedRoles={["ADMIN"]} />}>
-            <Route path="admin" element={<AdminDashboard />} />
-            <Route path="admin/users" element={<AdminUserManagement />} />
-            <Route path="admin/groups" element={<AdminGroupManagement />} />
-            <Route path="admin/stations" element={<AdminStationManagement />} />
+    <ThemeProvider theme={theme}>
+      <BrowserRouter>
+        <CssBaseline />
+        {/* AuthRedirectHandler component is GONE */}
+        <Routes>
+          <Route path="/" element={<Layout />}>
+            {/* GUEST ROUTES (public) */}
+            <Route index element={<HomePage />} />
+            <Route path="leaderboard" element={<LeaderboardPage />} />
+            <Route path="stations" element={<StationsPage />} />
+            <Route path="sidequests" element={<SideQuestsPage />} />
+            {/* Protected profile route for logged-in roles (ADMIN, SM, OGL) */}
             <Route
-              path="admin/sidequests"
-              element={<AdminSideQuestManagement />}
-            />
-            <Route path="admin/controls" element={<AdminGameControls />} />
-            <Route path="admin/scorelog" element={<AdminScoreLog />} />
+              element={<ProtectedRoute allowedRoles={["ADMIN", "SM", "OGL"]} />}
+            >
+              <Route path="profile" element={<ProfilePage />} />
+            </Route>
+            {/* ADMIN ROUTES (protected) */}
+            <Route element={<ProtectedRoute allowedRoles={["ADMIN"]} />}>
+              <Route path="admin" element={<AdminDashboard />} />
+              <Route path="admin/users" element={<AdminUserManagement />} />
+              <Route path="admin/groups" element={<AdminGroupManagement />} />
+              <Route
+                path="admin/stations"
+                element={<AdminStationManagement />}
+              />
+              <Route
+                path="admin/sidequests"
+                element={<AdminSideQuestManagement />}
+              />
+              <Route path="admin/controls" element={<AdminGameControls />} />
+              <Route path="admin/scorelog" element={<AdminScoreLog />} />
+              <Route
+                path="admin/submissions"
+                element={<AdminSubmissionGallery />}
+              />
+            </Route>
+            {/* SM ROUTES (protected) */}
+            <Route element={<ProtectedRoute allowedRoles={["SM"]} />}>
+              <Route path="sm" element={<SmDashboard />} />
+            </Route>
+            {/* OGL ROUTES (protected) */}
+            <Route element={<ProtectedRoute allowedRoles={["OGL"]} />}>
+              <Route path="ogl" element={<OglDashboard />} />
+              <Route path="ogl/journey" element={<OglJourney />} />
+              <Route path="ogl/sidequests" element={<OglSideQuests />} />
+            </Route>
+            {/* "Not Found" page, now also using MUI components */}
             <Route
-              path="admin/submissions"
-              element={<AdminSubmissionGallery />}
+              path="*"
+              element={
+                <Box>
+                  <Typography variant="h4">404 - Page Not Found</Typography>
+                </Box>
+              }
             />
           </Route>
-
-          {/* SM ROUTES (protected) */}
-          <Route element={<ProtectedRoute allowedRoles={["SM"]} />}>
-            <Route path="sm" element={<SmDashboard />} />
-          </Route>
-
-          {/* OGL ROUTES (protected) */}
-          <Route element={<ProtectedRoute allowedRoles={["OGL"]} />}>
-            <Route path="ogl" element={<OglDashboard />} />
-            <Route path="ogl/journey" element={<OglJourney />} />
-            <Route path="ogl/sidequests" element={<OglSideQuests />} />
-          </Route>
-
-          {/* "Not Found" page, now also using MUI components */}
-          <Route
-            path="*"
-            element={
-              <Box>
-                <Typography variant="h4">404 - Page Not Found</Typography>
-              </Box>
-            }
-          />
-        </Route>
-      </Routes>
-    </BrowserRouter>
+        </Routes>
+      </BrowserRouter>
+    </ThemeProvider>
   );
 }
 

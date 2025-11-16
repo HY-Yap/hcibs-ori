@@ -224,12 +224,16 @@ export const OglSideQuests: FC = () => {
     return (
       <Box sx={{ textAlign: "center", mt: 8, p: 4 }}>
         <LockIcon
-          sx={{ fontSize: 80, color: "text.secondary", mb: 2, opacity: 0.5 }}
+          sx={{ fontSize: 80, color: "#8d6e63", mb: 2, opacity: 0.5 }}
         />
-        <Typography variant="h4" color="error" gutterBottom>
+        <Typography
+          variant="h4"
+          sx={{ color: "#c62828", fontWeight: 600 }}
+          gutterBottom
+        >
           Game Paused
         </Typography>
-        <Typography paragraph>
+        <Typography paragraph sx={{ color: "#473321" }}>
           Side quests are currently unavailable.
         </Typography>
       </Box>
@@ -238,100 +242,108 @@ export const OglSideQuests: FC = () => {
 
   return (
     <Box sx={{ pb: 4 }}>
-      <Typography variant="h4" gutterBottom>
-        Side Quests
-      </Typography>
+      <Box
+        sx={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          mb: 2,
+        }}
+      >
+        <Typography variant="h5">Side Quests</Typography>
+      </Box>
+
       <Alert severity="info" sx={{ mb: 2 }}>
         Complete these for bonus points!
       </Alert>
 
-      <Paper>
-        <List disablePadding>
-          {quests.map((quest, index) => {
-            const isCompleted = completedQuests.includes(quest.id);
-            let Icon = AssignmentIcon;
-            if (quest.isSmManaged) Icon = SportsEsportsIcon;
-            else if (quest.submissionType === "photo") Icon = PhotoCameraIcon;
-            else if (quest.submissionType === "video") Icon = VideocamIcon;
+      <List sx={{ width: "100%", bgcolor: "background.paper" }}>
+        {quests.map((quest, index) => {
+          const isCompleted = completedQuests.includes(quest.id);
+          let Icon = AssignmentIcon;
+          if (quest.isSmManaged) Icon = SportsEsportsIcon;
+          else if (quest.submissionType === "photo") Icon = PhotoCameraIcon;
+          else if (quest.submissionType === "video") Icon = VideocamIcon;
 
-            return (
-              <React.Fragment key={quest.id}>
-                {index > 0 && <Divider />}
-                <ListItem
-                  onClick={() =>
-                    !isCompleted &&
-                    !quest.isSmManaged &&
-                    handleQuestClick(quest)
-                  }
+          return (
+            <React.Fragment key={quest.id}>
+              {index > 0 && <Divider />}
+              <ListItem
+                onClick={() =>
+                  !isCompleted && !quest.isSmManaged && handleQuestClick(quest)
+                }
+                sx={{
+                  opacity: isCompleted ? 0.6 : 1,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  py: 1.5,
+                  cursor:
+                    !isCompleted && !quest.isSmManaged ? "pointer" : "default",
+                  "&:hover":
+                    !isCompleted && !quest.isSmManaged
+                      ? {
+                          bgcolor: "action.hover",
+                        }
+                      : {},
+                }}
+              >
+                <Box
                   sx={{
-                    opacity: isCompleted ? 0.6 : 1,
-                    bgcolor: isCompleted ? "action.hover" : "inherit",
-                    cursor:
-                      !isCompleted && !quest.isSmManaged
-                        ? "pointer"
-                        : "default",
                     display: "flex",
                     alignItems: "center",
-                    py: 2,
+                    mr: 1,
+                    flex: 1,
+                    minWidth: 0,
                   }}
                 >
-                  <Box
-                    sx={{
-                      display: "flex",
-                      alignItems: "center",
-                      flex: 1,
-                      mr: 1,
-                      minWidth: 0,
-                    }}
-                  >
-                    <ListItemAvatar>
-                      <Avatar
-                        sx={{
-                          bgcolor: isCompleted
-                            ? "success.light"
-                            : quest.isSmManaged
-                            ? "warning.light"
-                            : "secondary.main",
-                        }}
-                      >
-                        {isCompleted ? <CheckCircleIcon /> : <Icon />}
-                      </Avatar>
-                    </ListItemAvatar>
-                    <ListItemText
-                      primary={quest.name}
-                      secondaryTypographyProps={{ noWrap: true }}
-                      secondary={
-                        quest.isSmManaged
-                          ? "Find a Station Master"
-                          : "Click to submit"
-                      }
+                  <ListItemAvatar>
+                    <Avatar
+                      sx={{
+                        bgcolor: isCompleted
+                          ? "success.main"
+                          : quest.isSmManaged
+                          ? "warning.main"
+                          : "primary.main",
+                      }}
+                    >
+                      {isCompleted ? <CheckCircleIcon /> : <Icon />}
+                    </Avatar>
+                  </ListItemAvatar>
+                  <ListItemText
+                    primary={quest.name}
+                    secondary={
+                      quest.isSmManaged
+                        ? "Find a Station Master"
+                        : "Click to submit"
+                    }
+                  />
+                </Box>
+                <Box sx={{ minWidth: "fit-content" }}>
+                  {isCompleted ? (
+                    <Chip
+                      icon={<CheckCircleIcon />}
+                      label="Done"
+                      color="success"
+                      size="small"
                     />
-                  </Box>
-                  <Box sx={{ minWidth: "fit-content" }}>
-                    {isCompleted ? (
-                      <Chip label="Done" color="success" size="small" />
-                    ) : quest.isSmManaged ? (
-                      <Chip
-                        label={`${quest.points} pts`}
-                        variant="outlined"
-                        size="small"
-                      />
-                    ) : (
-                      <Chip
-                        label={`${quest.points} pts`}
-                        color="primary"
-                        size="small"
-                      />
-                    )}
-                  </Box>
-                </ListItem>
-              </React.Fragment>
-            );
-          })}
-        </List>
-      </Paper>
+                  ) : (
+                    <Chip
+                      label={`${quest.points} pts`}
+                      color={quest.isSmManaged ? "warning" : "primary"}
+                      variant={quest.isSmManaged ? "outlined" : "filled"}
+                      size="small"
+                    />
+                  )}
+                </Box>
+              </ListItem>
+              <Divider variant="inset" component="li" />
+            </React.Fragment>
+          );
+        })}
+      </List>
 
-      {/* SUBMISSION DIALOG */}
+      {/* Dialog stays mostly the same but simpler */}
       <Dialog
         open={dialogOpen}
         onClose={handleCloseDialog}
@@ -340,7 +352,7 @@ export const OglSideQuests: FC = () => {
       >
         <DialogTitle>{selectedQuest?.name}</DialogTitle>
         <DialogContent>
-          <DialogContentText paragraph sx={{ color: "text.primary" }}>
+          <DialogContentText paragraph>
             {selectedQuest?.description}
           </DialogContentText>
 
@@ -348,23 +360,25 @@ export const OglSideQuests: FC = () => {
             sx={{
               mt: 2,
               p: 2,
-              bgcolor: "#f0f7ff",
+              bgcolor: "primary.light",
               borderRadius: 2,
-              border: "1px solid #cce5ff",
             }}
           >
-            <Typography variant="subtitle2" color="primary.main" align="center">
+            <Typography
+              variant="subtitle2"
+              color="primary.dark"
+              fontWeight="bold"
+              align="center"
+            >
               REWARD: {selectedQuest?.points} POINTS
             </Typography>
           </Box>
 
-          {/* --- 4. USE THE FILE UPLOADER --- */}
           {selectedQuest?.submissionType !== "none" && (
             <Box sx={{ mt: 2 }}>
               <Typography variant="subtitle1" gutterBottom>
                 Upload Proof:
               </Typography>
-              {/* Show uploaded file banner if present, otherwise show uploader */}
               {submissionUrl ? (
                 <Paper
                   variant="outlined"
@@ -373,12 +387,17 @@ export const OglSideQuests: FC = () => {
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "space-between",
-                    bgcolor: "#e8f5e9",
+                    bgcolor: "success.light",
+                    borderColor: "success.main",
                     mt: 1,
                   }}
                 >
                   <Box>
-                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    <Typography
+                      variant="body2"
+                      fontWeight={600}
+                      color="success.dark"
+                    >
                       File uploaded
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
@@ -386,26 +405,24 @@ export const OglSideQuests: FC = () => {
                         href={submissionUrl}
                         target="_blank"
                         rel="noopener noreferrer"
+                        style={{ color: "inherit" }}
                       >
                         View submission
                       </a>
                     </Typography>
                   </Box>
-                  <Box sx={{ display: "flex", gap: 1 }}>
-                    <Button
-                      size="small"
-                      color="error"
-                      variant="outlined"
-                      onClick={handleRemoveFile}
-                      disabled={submitting}
-                    >
-                      Remove file
-                    </Button>
-                  </Box>
+                  <Button
+                    size="small"
+                    color="error"
+                    variant="outlined"
+                    onClick={handleRemoveFile}
+                    disabled={submitting}
+                  >
+                    Remove
+                  </Button>
                 </Paper>
               ) : (
                 <FileUpload
-                  // human-readable path using group and quest names (slugged)
                   uploadPath={getUploadPath(selectedQuest || undefined)}
                   onUploadComplete={(url) => setSubmissionUrl(url)}
                 />
@@ -422,7 +439,6 @@ export const OglSideQuests: FC = () => {
             variant="contained"
             disabled={
               submitting ||
-              // Disable button if upload is required but not yet complete
               (selectedQuest?.submissionType !== "none" && !submissionUrl)
             }
           >
