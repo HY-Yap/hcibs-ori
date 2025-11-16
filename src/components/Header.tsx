@@ -26,11 +26,16 @@ import { signOut } from "firebase/auth";
 import { auth } from "../firebase";
 
 type MenuItemType =
-  | { type: "link"; name: string; path: string }
+  | { type: "link"; name: string; path: string; isExternal?: boolean }
   | {
       type: "menu";
       name: string;
-      items: { name: string; path: string; isDivider?: boolean }[];
+      items: {
+        name: string;
+        path: string;
+        isDivider?: boolean;
+        isExternal?: boolean;
+      }[];
     };
 
 const Header: React.FC = () => {
@@ -85,6 +90,8 @@ const Header: React.FC = () => {
       items: [
         { name: "Station List", path: "/stations" },
         { name: "Side Quest List", path: "/sidequests" },
+        { name: "DIVIDER", path: "", isDivider: true },
+        { name: "Annotated MRT Map", path: "/mrt-map.pdf", isExternal: true },
       ],
     },
     { type: "link", name: "Leaderboard", path: "/leaderboard" },
@@ -145,12 +152,16 @@ const Header: React.FC = () => {
       <List>
         {allLinks.map((item) => {
           if (item.type === "link") {
+            // Standard Link Logic
             return (
               <ListItem key={item.name} disablePadding>
                 <ListItemButton
-                  component={Link}
-                  to={item.path}
-                  onClick={handleDrawerToggle}
+                  component={item.isExternal ? "a" : Link}
+                  to={item.isExternal ? undefined : item.path}
+                  href={item.isExternal ? item.path : undefined}
+                  target={item.isExternal ? "_blank" : undefined}
+                  rel={item.isExternal ? "noopener noreferrer" : undefined}
+                  onClick={item.isExternal ? () => {} : handleDrawerToggle}
                   sx={{ textAlign: "center" }}
                 >
                   <ListItemText primary={item.name} />
@@ -158,6 +169,7 @@ const Header: React.FC = () => {
               </ListItem>
             );
           } else {
+            // Dropdown Logic
             const isOpen = mobileMenuOpen[item.name] || false;
             return (
               <Fragment key={item.name}>
@@ -180,9 +192,18 @@ const Header: React.FC = () => {
                       ) : (
                         <ListItemButton
                           key={subItem.name}
-                          component={Link}
-                          to={subItem.path}
-                          onClick={handleDrawerToggle}
+                          component={subItem.isExternal ? "a" : Link}
+                          to={subItem.isExternal ? undefined : subItem.path}
+                          href={subItem.isExternal ? subItem.path : undefined}
+                          target={subItem.isExternal ? "_blank" : undefined}
+                          rel={
+                            subItem.isExternal
+                              ? "noopener noreferrer"
+                              : undefined
+                          }
+                          onClick={
+                            subItem.isExternal ? () => {} : handleDrawerToggle
+                          }
                           sx={{ pl: 4, textAlign: "center" }}
                         >
                           <ListItemText primary={subItem.name} />
@@ -295,8 +316,15 @@ const Header: React.FC = () => {
                         ) : (
                           <MenuItem
                             key={subItem.name}
-                            component={Link}
-                            to={subItem.path}
+                            component={subItem.isExternal ? "a" : Link}
+                            to={subItem.isExternal ? undefined : subItem.path}
+                            href={subItem.isExternal ? subItem.path : undefined}
+                            target={subItem.isExternal ? "_blank" : undefined}
+                            rel={
+                              subItem.isExternal
+                                ? "noopener noreferrer"
+                                : undefined
+                            }
                             onClick={() => handleDesktopMenuClose(item.name)}
                           >
                             {subItem.name}
