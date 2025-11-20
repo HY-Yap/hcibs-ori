@@ -109,6 +109,7 @@ const Header: React.FC = () => {
           // { name: "DIVIDER", path: "", isDivider: true },
           { name: "Manage Users", path: "/admin/users" },
           { name: "Manage Groups", path: "/admin/groups" },
+          { name: "Manage Houses", path: "/admin/houses" },
           { name: "Manage Stations", path: "/admin/stations" },
           { name: "Manage Side Quests", path: "/admin/sidequests" },
           { name: "DIVIDER", path: "", isDivider: true },

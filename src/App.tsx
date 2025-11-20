@@ -14,6 +14,7 @@ import { SideQuestsPage } from "./pages/SideQuests";
 import { AdminStationManagement } from "./pages/AdminStationManagement";
 import { AdminSideQuestManagement } from "./pages/SideQuestManagement";
 import { AdminGroupManagement } from "./pages/AdminGroupManagement";
+import { AdminHouseManagement } from './pages/AdminHouseManagement';
 import { OglJourney } from "./pages/OglJourney";
 import { OglSideQuests } from "./pages/OglSideQuests";
 import { AdminGameControls } from "./pages/AdminGameControls";
@@ -50,6 +51,7 @@ function App() {
               <Route path="admin" element={<AdminDashboard />} />
               <Route path="admin/users" element={<AdminUserManagement />} />
               <Route path="admin/groups" element={<AdminGroupManagement />} />
+              <Route path="admin/houses" element={<AdminHouseManagement />} />
               <Route
                 path="admin/stations"
                 element={<AdminStationManagement />}
