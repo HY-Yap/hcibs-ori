@@ -56,6 +56,11 @@ interface ScoreData {
   textAnswer?: string;
 }
 
+interface HouseData {
+  name: string;
+  color?: string;
+}
+
 // add a local alias for readability using the admin SDK types
 type QDoc = admin.firestore.QueryDocumentSnapshot;
 
@@ -1457,15 +1462,13 @@ export const getUserEmailFromUsername = onCall(
 );
 
 // ===================================================================
-// 31. PUBLIC LEADERBOARD - Allows guests to view leaderboard
+// 31. PUBLIC LEADERBOARD (UPDATED FOR HOUSES)
 // ===================================================================
 let leaderboardCache: { data: any; timestamp: number } | null = null;
 const CACHE_TTL = 5000; // 5 seconds
 
 export const getPublicLeaderboard = onRequest(
-  {
-    cors: true,
-  },
+  { cors: true },
   async (req, res) => {
     res.set("Access-Control-Allow-Origin", "*");
     res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
@@ -1477,36 +1480,244 @@ export const getPublicLeaderboard = onRequest(
     }
 
     try {
-      // Check cache first
       const now = Date.now();
       if (leaderboardCache && now - leaderboardCache.timestamp < CACHE_TTL) {
         res.json(leaderboardCache.data);
         return;
       }
 
-      // Fetch fresh data
-      const groupsSnapshot = await admin
-        .firestore()
-        .collection("groups")
-        .orderBy("totalScore", "desc")
-        .orderBy("lastScoreTimestamp", "asc")
-        .get();
+      // Fetch everything in parallel
+      const [groupsSnap, housesSnap, configSnap] = await Promise.all([
+        admin.firestore().collection("groups").get(),
+        admin.firestore().collection("houses").get(),
+        admin.firestore().collection("game").doc("config").get(),
+      ]);
 
-      const leaderboard = groupsSnapshot.docs.map((doc) => ({
+      const isHouseEnabled = configSnap.data()?.houseSystemEnabled || false;
+
+      // 1. Process Groups
+      const groups = groupsSnap.docs.map((doc) => ({
         id: doc.id,
         name: doc.data().name,
         totalScore: doc.data().totalScore || 0,
+        houseId: doc.data().houseId,
+        lastScoreTimestamp: doc.data().lastScoreTimestamp,
       }));
 
-      const responseData = { leaderboard };
+      // Sort Groups: Score DESC, Time ASC (Earlier time wins ties)
+      groups.sort((a, b) => {
+        if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
+        const timeA = a.lastScoreTimestamp?.toMillis() || 0;
+        const timeB = b.lastScoreTimestamp?.toMillis() || 0;
+        return timeA - timeB;
+      });
 
-      // Update cache
+      // 2. Process Houses (if enabled)
+      let houses: any[] = [];
+      if (isHouseEnabled) {
+        const houseMap: Record<string, any> = {};
+        // Init houses
+        housesSnap.forEach((h) => {
+          houseMap[h.id] = {
+            id: h.id,
+            name: h.data().name,
+            color: h.data().color,
+            totalScore: 0,
+          };
+        });
+        // Sum scores from groups
+        groups.forEach((g) => {
+          if (g.houseId && houseMap[g.houseId]) {
+            houseMap[g.houseId].totalScore += g.totalScore;
+          }
+        });
+        // Convert to array and sort
+        houses = Object.values(houseMap).sort(
+          (a, b) => b.totalScore - a.totalScore
+        );
+      }
+
+      // 3. Send Response
+      const responseData = {
+        groups: groups.map(({ id, name, totalScore }) => ({
+          id,
+          name,
+          totalScore,
+        })),
+        houses,
+        isHouseEnabled,
+      };
+
       leaderboardCache = { data: responseData, timestamp: now };
-
       res.json(responseData);
     } catch (error: any) {
       console.error("Error fetching leaderboard:", error);
       res.status(500).json({ error: "Failed to fetch leaderboard" });
+    }
+  }
+);
+
+// ===================================================================
+// HOUSE SYSTEM FUNCTIONS
+// ===================================================================
+
+// 32. CREATE HOUSE
+export const createHouse = onCall(
+  async (request: CallableRequest<{ name: string; color: string }>) => {
+    if (!request.auth)
+      throw new HttpsError("unauthenticated", "Must be logged in.");
+    const callerDoc = await admin
+      .firestore()
+      .collection("users")
+      .doc(request.auth.uid)
+      .get();
+    if (callerDoc.data()?.role !== "ADMIN")
+      throw new HttpsError("permission-denied", "Admin only.");
+
+    const { name, color } = request.data;
+    if (!name) throw new HttpsError("invalid-argument", "Name is required.");
+
+    try {
+      const ref = admin.firestore().collection("houses").doc();
+      await ref.set({
+        name,
+        color: color || "#000000",
+        totalPoints: 0, // Future proofing for leaderboard
+      });
+      return { success: true, id: ref.id };
+    } catch (error: any) {
+      throw new HttpsError("internal", error.message);
+    }
+  }
+);
+
+// 33. DELETE HOUSE (And un-assign groups)
+export const deleteHouse = onCall(
+  async (request: CallableRequest<{ id: string }>) => {
+    if (!request.auth)
+      throw new HttpsError("unauthenticated", "Must be logged in.");
+    const callerDoc = await admin
+      .firestore()
+      .collection("users")
+      .doc(request.auth.uid)
+      .get();
+    if (callerDoc.data()?.role !== "ADMIN")
+      throw new HttpsError("permission-denied", "Admin only.");
+
+    const houseId = request.data.id;
+    try {
+      const batch = admin.firestore().batch();
+
+      // 1. Delete the house
+      const houseRef = admin.firestore().collection("houses").doc(houseId);
+      batch.delete(houseRef);
+
+      // 2. Unassign all groups currently in this house
+      const groupsSnap = await admin
+        .firestore()
+        .collection("groups")
+        .where("houseId", "==", houseId)
+        .get();
+      groupsSnap.docs.forEach((doc) => {
+        batch.update(doc.ref, { houseId: admin.firestore.FieldValue.delete() });
+      });
+
+      await batch.commit();
+      return { success: true };
+    } catch (error: any) {
+      throw new HttpsError("internal", error.message);
+    }
+  }
+);
+
+// 34. ASSIGN GROUP TO HOUSE
+export const assignGroupToHouse = onCall(
+  async (
+    request: CallableRequest<{ groupId: string; houseId: string | null }>
+  ) => {
+    if (!request.auth)
+      throw new HttpsError("unauthenticated", "Must be logged in.");
+    const callerDoc = await admin
+      .firestore()
+      .collection("users")
+      .doc(request.auth.uid)
+      .get();
+    if (callerDoc.data()?.role !== "ADMIN")
+      throw new HttpsError("permission-denied", "Admin only.");
+
+    const { groupId, houseId } = request.data;
+    try {
+      const groupRef = admin.firestore().collection("groups").doc(groupId);
+      if (houseId) {
+        await groupRef.update({ houseId });
+      } else {
+        await groupRef.update({ houseId: admin.firestore.FieldValue.delete() });
+      }
+      return { success: true };
+    } catch (error: any) {
+      throw new HttpsError("internal", error.message);
+    }
+  }
+);
+
+// 35. TOGGLE HOUSE SYSTEM
+export const toggleHouseSystem = onCall(
+  async (request: CallableRequest<{ enabled: boolean }>) => {
+    if (!request.auth)
+      throw new HttpsError("unauthenticated", "Must be logged in.");
+    const callerDoc = await admin
+      .firestore()
+      .collection("users")
+      .doc(request.auth.uid)
+      .get();
+    if (callerDoc.data()?.role !== "ADMIN")
+      throw new HttpsError("permission-denied", "Admin only.");
+
+    try {
+      await admin.firestore().collection("game").doc("config").set(
+        {
+          houseSystemEnabled: request.data.enabled,
+        },
+        { merge: true }
+      );
+      return { success: true };
+    } catch (error: any) {
+      throw new HttpsError("internal", error.message);
+    }
+  }
+);
+
+// 36. UPDATE HOUSE
+export const updateHouse = onCall(
+  async (
+    request: CallableRequest<{ id: string; name: string; color: string }>
+  ) => {
+    if (!request.auth)
+      throw new HttpsError("unauthenticated", "Must be logged in.");
+    const callerDoc = await admin
+      .firestore()
+      .collection("users")
+      .doc(request.auth.uid)
+      .get();
+    if (callerDoc.data()?.role !== "ADMIN")
+      throw new HttpsError("permission-denied", "Admin only.");
+
+    const { id, name, color } = request.data;
+    if (!id || !name)
+      throw new HttpsError("invalid-argument", "ID and Name required.");
+
+    try {
+      await admin
+        .firestore()
+        .collection("houses")
+        .doc(id)
+        .update({
+          name,
+          color: color || "#000000",
+        });
+      return { success: true };
+    } catch (error: any) {
+      throw new HttpsError("internal", error.message);
     }
   }
 );
