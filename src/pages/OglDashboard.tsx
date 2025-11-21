@@ -242,7 +242,13 @@ export const OglDashboard: FC = () => {
       <Typography variant="h5" gutterBottom sx={{ mb: 2 }}>
         Your Progress
       </Typography>
-      <Box sx={{ display: "flex", gap: 2 }}>
+      <Box
+        sx={{
+          display: "flex",
+          flexDirection: { xs: "column", sm: "row" },
+          gap: 2,
+        }}
+      >
         {/* Ring 1 - Match AdminDashboard card style */}
         <Paper
           elevation={1} // Changed from default to match AdminDashboard

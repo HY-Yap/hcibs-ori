@@ -59,7 +59,7 @@ export const StationModal: FC<StationModalProps> = ({
   const [location, setLocation] = useState("");
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState<
-    "OPEN" | "CLOSED_LUNCH" | "CLOSED_PERMANENTLY"
+    "OPEN" | "LUNCH_SOON" | "CLOSED_LUNCH" | "CLOSED_PERMANENTLY"
   >("OPEN");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -177,7 +177,7 @@ export const StationModal: FC<StationModalProps> = ({
             label="Status"
             onChange={(e) =>
               setStatus(
-                e.target.value as "OPEN" | "CLOSED_LUNCH" | "CLOSED_PERMANENTLY"
+                e.target.value as "OPEN" | "LUNCH_SOON" | "CLOSED_LUNCH" | "CLOSED_PERMANENTLY"
               )
             }
           >
