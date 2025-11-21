@@ -1,0 +1,20 @@
+{
+  "short_name": "HCIBSO",
+  "name": "HCIBSO Amazing Race",
+  "icons": [
+    {
+      "src": "/logo.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "/logo.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#b97539",
+  "background_color": "#faf9f6"
+}

@@ -61,6 +61,43 @@ interface HouseData {
   color?: string;
 }
 
+// --- HELPER: SEND PUSH TO SPECIFIC STATION MASTER ---
+const notifyStationMaster = async (stationId: string, message: string) => {
+  try {
+    // 1. Find the user who is an SM AND has selected this station
+    const smQuery = await admin
+      .firestore()
+      .collection("users")
+      .where("role", "==", "SM")
+      .where("selectedStationId", "==", stationId)
+      .get();
+
+    const tokens: string[] = [];
+    smQuery.forEach((doc) => {
+      const data = doc.data();
+      if (data.fcmToken) tokens.push(data.fcmToken);
+    });
+
+    if (tokens.length > 0) {
+      console.log(
+        `Sending push to ${tokens.length} SMs at station ${stationId}`
+      );
+      // 2. Send Data-Only Notification
+      await admin.messaging().sendEachForMulticast({
+        tokens: tokens,
+        data: {
+          title: "Station Alert",
+          body: message,
+          url: "/sm", // Clicking opens their dashboard
+        },
+      });
+    }
+  } catch (err) {
+    console.error("Failed to notify SM:", err);
+    // We don't throw error here because we don't want to break the main action
+  }
+};
+
 // add a local alias for readability using the admin SDK types
 type QDoc = admin.firestore.QueryDocumentSnapshot;
 
@@ -658,12 +695,14 @@ export const assignOglToGroup = onCall(
 );
 
 // ===================================================================
-// 17. OGL START TRAVEL
+// 17. OGL START TRAVEL (WITH PUSH NOTIFICATION)
 // ===================================================================
 export const oglStartTravel = onCall(
   async (request: CallableRequest<{ stationId: string; eta: string }>) => {
     if (!request.auth)
       throw new HttpsError("unauthenticated", "Must be logged in.");
+
+    // Inline helper logic
     const userDoc = await admin
       .firestore()
       .collection("users")
@@ -698,19 +737,25 @@ export const oglStartTravel = onCall(
         travelingCount: admin.firestore.FieldValue.increment(1),
       });
 
-      // 4. IMPROVEMENT: Send Announcement to Station Master
+      // NOTIFY SM
       const groupName = (
         await admin.firestore().collection("groups").doc(groupId).get()
       ).data()?.name;
+      const message = `${groupName} is now heading towards your station (ETA: ${eta}).`;
+
       const announceRef = admin.firestore().collection("announcements").doc();
       batch.set(announceRef, {
-        message: `${groupName} is now heading towards your station. Their estimated arrival time is ${eta}.`,
-        targets: [`SM:${stationId}`], // Targeted specifically to this station's SM
+        message: message,
+        targets: [`SM:${stationId}`],
         timestamp: admin.firestore.FieldValue.serverTimestamp(),
         createdBy: "SYSTEM",
       });
 
       await batch.commit();
+
+      // TRIGGER PUSH NOTIFICATION
+      await notifyStationMaster(stationId, message);
+
       return { success: true };
     } catch (error: any) {
       throw new HttpsError("internal", error.message);
@@ -719,7 +764,7 @@ export const oglStartTravel = onCall(
 );
 
 // ===================================================================
-// 18. OGL ARRIVE
+// 18. OGL ARRIVE (WITH PUSH NOTIFICATION)
 // ===================================================================
 export const oglArrive = onCall(async (request: CallableRequest<void>) => {
   if (!request.auth)
@@ -756,17 +801,23 @@ export const oglArrive = onCall(async (request: CallableRequest<void>) => {
       arrivedCount: admin.firestore.FieldValue.increment(1),
     });
 
-    // 4. IMPROVEMENT: Send Announcement to Station Master
+    // NOTIFY SM
     const groupName = groupDoc.data()?.name;
+    const message = `${groupName} has ARRIVED at your station.`;
+
     const announceRef = admin.firestore().collection("announcements").doc();
     batch.set(announceRef, {
-      message: `${groupName} has arrived at your station.`,
-      targets: [`SM:${currentDestination}`], // Targeted specifically to this station's SM
+      message: message,
+      targets: [`SM:${currentDestination}`],
       timestamp: admin.firestore.FieldValue.serverTimestamp(),
       createdBy: "SYSTEM",
     });
 
     await batch.commit();
+
+    // TRIGGER PUSH NOTIFICATION
+    await notifyStationMaster(currentDestination, message);
+
     return { success: true };
   } catch (error: any) {
     throw new HttpsError("internal", error.message);
@@ -774,12 +825,11 @@ export const oglArrive = onCall(async (request: CallableRequest<void>) => {
 });
 
 // ===================================================================
-// 19. OGL DEPART (FIXED: Updates Last Location)
+// 19. OGL DEPART (WITH PUSH NOTIFICATION)
 // ===================================================================
 export const oglDepart = onCall(async (request: CallableRequest<void>) => {
   if (!request.auth)
     throw new HttpsError("unauthenticated", "Must be logged in.");
-  // ...existing code...
   const userDoc = await admin
     .firestore()
     .collection("users")
@@ -788,7 +838,6 @@ export const oglDepart = onCall(async (request: CallableRequest<void>) => {
   if (userDoc.data()?.role !== "OGL")
     throw new HttpsError("permission-denied", "Only OGLs.");
   const groupId = userDoc.data()?.groupId;
-  // ...existing code...
 
   const groupDoc = await admin
     .firestore()
@@ -809,26 +858,32 @@ export const oglDepart = onCall(async (request: CallableRequest<void>) => {
     }
     batch.update(admin.firestore().collection("groups").doc(groupId), {
       status: "IDLE",
-      // ...existing code...
       lastStationId: currentStationId,
-      // ...existing code...
       destinationId: admin.firestore.FieldValue.delete(),
       destinationEta: admin.firestore.FieldValue.delete(),
     });
 
-    // 4. IMPROVEMENT: Send Announcement to Station Master
+    // NOTIFY SM
     if (currentStationId) {
       const groupName = groupDoc.data()?.name;
+      const message = `${groupName} has LEFT the station.`;
+
       const announceRef = admin.firestore().collection("announcements").doc();
       batch.set(announceRef, {
-        message: `${groupName} has decided to leave the station now.`,
+        message: message,
         targets: [`SM:${currentStationId}`],
         timestamp: admin.firestore.FieldValue.serverTimestamp(),
         createdBy: "SYSTEM",
       });
+
+      await batch.commit();
+
+      // TRIGGER PUSH NOTIFICATION
+      await notifyStationMaster(currentStationId, message);
+    } else {
+      await batch.commit();
     }
 
-    await batch.commit();
     return { success: true };
   } catch (error: any) {
     throw new HttpsError("internal", error.message);
@@ -998,7 +1053,7 @@ export const resetGame = onCall(async (request: CallableRequest<void>) => {
 });
 
 // ===================================================================
-// 23. MAKE ANNOUNCEMENT (ADMIN ONLY)
+// 23. MAKE ANNOUNCEMENT (FIXED: DATA-ONLY PAYLOAD)
 // ===================================================================
 export const makeAnnouncement = onCall(
   async (request: CallableRequest<{ message: string; targets?: string[] }>) => {
@@ -1016,23 +1071,58 @@ export const makeAnnouncement = onCall(
     if (!message)
       throw new HttpsError("invalid-argument", "Message is required.");
 
-    // If targets is provided and not empty, use it. Otherwise default to ALL.
     const finalTargets =
-      targets && targets.length > 0
-        ? targets
-        : ["OGL", "SM", "ADMIN", "GUEST"];
-
-    console.log(`Creating announcement for: ${finalTargets.join(", ")}`);
+      targets && targets.length > 0 ? targets : ["OGL", "SM", "ADMIN", "GUEST"];
 
     try {
+      // 1. Save to Firestore
       await admin.firestore().collection("announcements").add({
         message,
         targets: finalTargets,
         timestamp: admin.firestore.FieldValue.serverTimestamp(),
         createdBy: request.auth.uid,
       });
+
+      // 2. SEND PUSH NOTIFICATIONS
+      const usersSnap = await admin
+        .firestore()
+        .collection("users")
+        .where("role", "in", finalTargets)
+        .get();
+
+      const uniqueTokens = new Set<string>();
+
+      usersSnap.forEach((doc) => {
+        const data = doc.data();
+        if (data.fcmToken) {
+          uniqueTokens.add(data.fcmToken);
+        }
+      });
+
+      const tokens = Array.from(uniqueTokens);
+
+      if (tokens.length > 0) {
+        // --- DATA-ONLY PAYLOAD ---
+        // By NOT including the 'notification' key, we prevent the
+        // browser from showing a duplicate automatic notification.
+        const payload = {
+          tokens: tokens,
+          data: {
+            title: "HCIBSO Amazing Race",
+            body: message,
+            url: "/", // Open the app
+          },
+        };
+
+        const response = await admin.messaging().sendEachForMulticast(payload);
+        console.log(
+          `Sent to ${tokens.length} devices. Success: ${response.successCount}`
+        );
+      }
+
       return { success: true };
     } catch (error: any) {
+      console.error("Announcement Error:", error);
       throw new HttpsError("internal", error.message);
     }
   }
