@@ -44,7 +44,7 @@ import EditIcon from "@mui/icons-material/Edit";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 
 type StationType = "manned" | "unmanned" | "ALL";
-type StationStatus = "OPEN" | "CLOSED_LUNCH" | "CLOSED_PERMANENTLY" | "ALL";
+type StationStatus = "OPEN" | "LUNCH_SOON" | "CLOSED_LUNCH" | "CLOSED_PERMANENTLY" | "ALL";
 type SortableColumn = "name" | "type" | "location" | "status";
 type Order = "asc" | "desc";
 
@@ -239,6 +239,7 @@ export const AdminStationManagement: React.FC = () => {
                 }
               >
                 <MenuItem value="ALL">All Statuses</MenuItem>
+                <MenuItem value="LUNCH_SOON">Lunch Soon</MenuItem>
                 <MenuItem value="OPEN">Open</MenuItem>
                 <MenuItem value="CLOSED_LUNCH">On Lunch</MenuItem>
                 <MenuItem value="CLOSED_PERMANENTLY">Closed</MenuItem>
@@ -324,6 +325,8 @@ export const AdminStationManagement: React.FC = () => {
                       color={
                         s.status === "OPEN"
                           ? "success"
+                          : s.status === "LUNCH_SOON"
+                          ? "warning"
                           : s.status === "CLOSED_LUNCH"
                           ? "warning"
                           : "error"
