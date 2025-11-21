@@ -44,6 +44,7 @@ export const AdminAnnouncementManagement: React.FC = () => {
   const [announcements, setAnnouncements] = useState<AnnouncementData[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
+  const [stationMap, setStationMap] = useState<Record<string, string>>({}); // NEW: Map for station names
 
   // Broadcast State
   const [announcement, setAnnouncement] = useState("");
@@ -72,8 +73,31 @@ export const AdminAnnouncementManagement: React.FC = () => {
       );
       setLoading(false);
     });
-    return () => unsub();
+
+    // NEW: Fetch stations to resolve SM:{id} to SM (Station Name)
+    const unsubStations = onSnapshot(collection(db, "stations"), (snap) => {
+      const map: Record<string, string> = {};
+      snap.docs.forEach((doc) => {
+        map[doc.id] = doc.data().name;
+      });
+      setStationMap(map);
+    });
+
+    return () => {
+      unsub();
+      unsubStations(); // Cleanup
+    };
   }, []);
+
+  // NEW: Helper to format target string
+  const formatTarget = (t: string) => {
+    if (t.startsWith("SM:")) {
+      const id = t.split(":")[1];
+      const name = stationMap[id];
+      return name ? `SM (${name})` : t;
+    }
+    return t;
+  };
 
   const handleTargetChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setTargets({
@@ -298,7 +322,8 @@ export const AdminAnnouncementManagement: React.FC = () => {
                           {ann.timestamp?.toDate().toLocaleString()}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
-                          Targets: {ann.targets ? ann.targets.join(", ") : "ALL"}
+                          {/* UPDATED: Use formatTarget to show readable names */}
+                          Targets: {ann.targets ? ann.targets.map(formatTarget).join(", ") : "ALL"}
                         </Typography>
                       </>
                     }
