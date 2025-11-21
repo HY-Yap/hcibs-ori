@@ -14,7 +14,7 @@ import { SideQuestsPage } from "./pages/SideQuests";
 import { AdminStationManagement } from "./pages/AdminStationManagement";
 import { AdminSideQuestManagement } from "./pages/SideQuestManagement";
 import { AdminGroupManagement } from "./pages/AdminGroupManagement";
-import { AdminHouseManagement } from './pages/AdminHouseManagement';
+import { AdminHouseManagement } from "./pages/AdminHouseManagement";
 import { OglJourney } from "./pages/OglJourney";
 import { OglSideQuests } from "./pages/OglSideQuests";
 import { AdminGameControls } from "./pages/AdminGameControls";
@@ -26,6 +26,7 @@ import { AdminAnnouncementManagement } from "./pages/AdminAnnouncementManagement
 // Import all our components
 import { Layout } from "./components/Layout";
 import { ProtectedRoute } from "./components/ProtectedRoute";
+import { NotificationHandler } from "./components/NotificationHandler";
 // AuthRedirectHandler import is now GONE
 
 function App() {
@@ -33,7 +34,7 @@ function App() {
     <ThemeProvider theme={theme}>
       <BrowserRouter>
         <CssBaseline />
-        {/* AuthRedirectHandler component is GONE */}
+        <NotificationHandler />
         <Routes>
           <Route path="/" element={<Layout />}>
             {/* GUEST ROUTES (public) */}
