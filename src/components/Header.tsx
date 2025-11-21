@@ -1,4 +1,4 @@
-import React, { useState, Fragment, type MouseEvent } from "react";
+import React, { useState, Fragment, type MouseEvent, useEffect } from "react"; // Added useEffect
 import {
   AppBar,
   Box,
@@ -15,15 +15,25 @@ import {
   MenuItem,
   Collapse,
   Divider,
+  Snackbar, // Added
+  Alert, // Added
 } from "@mui/material";
 import { Link, useNavigate } from "react-router-dom";
 import MenuIcon from "@mui/icons-material/Menu";
 import ExpandLess from "@mui/icons-material/ExpandLess";
 import ExpandMore from "@mui/icons-material/ExpandMore";
+import CampaignIcon from "@mui/icons-material/Campaign"; // Added
 import { LoginModal } from "./LoginModal";
 import { useAuth } from "../context/AuthContext";
 import { signOut } from "firebase/auth";
-import { auth } from "../firebase";
+import { auth, db } from "../firebase"; // Added db
+import {
+  collection,
+  query,
+  orderBy,
+  limit,
+  onSnapshot,
+} from "firebase/firestore"; // Added firestore imports
 
 type MenuItemType =
   | { type: "link"; name: string; path: string; isExternal?: boolean }
@@ -51,6 +61,55 @@ const Header: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState<{
     [key: string]: boolean;
   }>({});
+
+  // --- NEW: Global Notification Logic ---
+  const [notifyOpen, setNotifyOpen] = useState(false);
+  const [notifyMessage, setNotifyMessage] = useState("");
+  const [lastAnnounceId, setLastAnnounceId] = useState<string | null>(null);
+  const [loadTime] = useState(() => new Date());
+
+  useEffect(() => {
+    // Listen to latest announcement
+    const q = query(
+      collection(db, "announcements"),
+      orderBy("timestamp", "desc"),
+      limit(1)
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      if (snap.empty) return;
+      const doc = snap.docs[0];
+      const data = doc.data();
+
+      // Prevent duplicate if same ID
+      if (doc.id === lastAnnounceId) return;
+
+      // Prevent showing old announcements on reload
+      const annTime = data.timestamp?.toDate();
+      if (!annTime || annTime <= loadTime) return;
+
+      // Check targeting
+      const targets = data.targets as string[] | undefined;
+      const myRole = profile?.role;
+
+      let isRelevant = false;
+      if (!targets || targets.length === 0) isRelevant = true; // Legacy/All
+      else if (targets.includes("GUEST")) isRelevant = true;
+      else if (myRole && targets.includes(myRole)) isRelevant = true;
+      else if (
+        myRole === "SM" &&
+        (profile as any)?.selectedStationId &&
+        targets.includes(`SM:${(profile as any).selectedStationId}`)
+      )
+        isRelevant = true;
+
+      if (isRelevant) {
+        setNotifyMessage(data.message);
+        setNotifyOpen(true);
+        setLastAnnounceId(doc.id);
+      }
+    });
+    return () => unsub();
+  }, [profile, lastAnnounceId, loadTime]);
 
   const handleLoginOpen = () => setLoginOpen(true);
   const handleLoginClose = () => setLoginOpen(false);
@@ -399,6 +458,25 @@ const Header: React.FC = () => {
       {!currentUser && (
         <LoginModal open={isLoginOpen} onClose={handleLoginClose} />
       )}
+
+      {/* NEW: Global Notification Snackbar */}
+      <Snackbar
+        open={notifyOpen}
+        autoHideDuration={5000}
+        onClose={() => setNotifyOpen(false)}
+        anchorOrigin={{ vertical: "top", horizontal: "center" }}
+        sx={{ mt: { xs: 7, sm: 8 } }}
+      >
+        <Alert
+          onClose={() => setNotifyOpen(false)}
+          severity="info"
+          variant="filled"
+          icon={<CampaignIcon />}
+          sx={{ width: "100%" }}
+        >
+          New Announcement: {notifyMessage}
+        </Alert>
+      </Snackbar>
     </Fragment>
   );
 };
