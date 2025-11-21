@@ -21,6 +21,7 @@ import { AdminGameControls } from "./pages/AdminGameControls";
 import { AdminScoreLog } from "./pages/AdminScoreLog";
 import { ProfilePage } from "./pages/Profile";
 import { AdminSubmissionGallery } from "./pages/AdminSubmissionGallery";
+import { AdminAnnouncementManagement } from "./pages/AdminAnnouncementManagement";
 
 // Import all our components
 import { Layout } from "./components/Layout";
@@ -59,6 +60,10 @@ function App() {
               <Route
                 path="admin/sidequests"
                 element={<AdminSideQuestManagement />}
+              />
+              <Route
+                path="admin/announcements"
+                element={<AdminAnnouncementManagement />}
               />
               <Route path="admin/controls" element={<AdminGameControls />} />
               <Route path="admin/scorelog" element={<AdminScoreLog />} />

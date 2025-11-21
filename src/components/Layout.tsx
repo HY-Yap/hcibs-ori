@@ -1,61 +1,13 @@
-import { useEffect, useState } from "react";
 import type { FC } from "react";
 import { Outlet } from "react-router-dom";
 import { Header } from "./Header";
-import { Snackbar, Alert, Box, Typography } from "@mui/material";
-import {
-  collection,
-  query,
-  orderBy,
-  limit,
-  onSnapshot,
-} from "firebase/firestore";
-import { db } from "../firebase";
+import { Box } from "@mui/material";
 import { useAuth } from "../context/AuthContext";
 
 export const Layout: FC = () => {
-  const { currentUser } = useAuth();
-  const [toastOpen, setToastOpen] = useState(false);
-  const [toastMessage, setToastMessage] = useState("");
-  const [lastMessageId, setLastMessageId] = useState<string | null>(null);
+  const { profile } = useAuth(); // Removed currentUser, not needed for layout logic anymore
 
-  // --- NEW: Track when this user loaded the app ---
-  const [loadTime] = useState(() => new Date());
-
-  useEffect(() => {
-    if (!currentUser) return;
-
-    const q = query(
-      collection(db, "announcements"),
-      orderBy("timestamp", "desc"),
-      limit(1)
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      if (!snapshot.empty) {
-        const latestDoc = snapshot.docs[0];
-        const latestData = latestDoc.data();
-        const msgTime = latestData.timestamp?.toDate();
-
-        // --- UPDATED CHECK ---
-        // Only show toast if:
-        // 1. It's a different message than the last one we saw
-        // 2. AND it was created AFTER we loaded the app (filters out old messages on reset)
-        if (
-          lastMessageId &&
-          latestDoc.id !== lastMessageId &&
-          msgTime &&
-          msgTime > loadTime
-        ) {
-          setToastMessage(latestData.message);
-          setToastOpen(true);
-        }
-        setLastMessageId(latestDoc.id);
-      }
-    });
-
-    return () => unsubscribe();
-  }, [currentUser, lastMessageId, loadTime]);
+  // REMOVED: Global announcement listener (Yellow Toast) to fix duplicates
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
@@ -67,39 +19,24 @@ export const Layout: FC = () => {
         <Outlet />
       </Box>
 
-      <Snackbar
-        open={toastOpen}
-        autoHideDuration={6000}
-        onClose={() => setToastOpen(false)}
-        anchorOrigin={{ vertical: "top", horizontal: "center" }}
-        sx={{ mt: { xs: 7, sm: 8 } }}
-      >
-        <Alert
-          onClose={() => setToastOpen(false)}
-          severity="warning"
-          variant="filled"
+      {/* REMOVED: Snackbar component */}
+
+      {/* Admin Tools Section */}
+      {profile?.role === "ADMIN" && (
+        <Box
+          component="nav"
           sx={{
-            width: "100%",
-            boxShadow: 3,
-            fontWeight: "bold",
-            "& .MuiAlert-message": {
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-word",
-              maxWidth: "600px",
-            },
+            bgcolor: "#fff",
+            borderTop: "1px solid #e0e0e0",
+            p: 2,
+            display: "flex",
+            flexDirection: "column",
+            gap: 1,
           }}
         >
-          <span>📢 NEW ANNOUNCEMENT:</span>
-          <br />
-          <Typography
-            variant="body2"
-            component="span"
-            sx={{ fontWeight: "normal" }}
-          >
-            {toastMessage}
-          </Typography>
-        </Alert>
-      </Snackbar>
+          {/* REMOVED: Manage Announcements link from here */}
+        </Box>
+      )}
     </Box>
   );
 };

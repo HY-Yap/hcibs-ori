@@ -112,6 +112,11 @@ const Header: React.FC = () => {
           { name: "Manage Houses", path: "/admin/houses" },
           { name: "Manage Stations", path: "/admin/stations" },
           { name: "Manage Side Quests", path: "/admin/sidequests" },
+          {
+            name: "Manage Announcements",
+            path: "/admin/announcements",
+            isExternal: false,
+          },
           { name: "DIVIDER", path: "", isDivider: true },
           { name: "Game Controls", path: "/admin/controls" },
           { name: "Score Log", path: "/admin/scorelog" },
@@ -380,6 +385,12 @@ const Header: React.FC = () => {
         sx={{
           display: { xs: "block", md: "none" },
           "& .MuiDrawer-paper": { boxSizing: "border-box", width: 250 },
+        }}
+        PaperProps={{
+          sx: {
+            width: 250,
+            height: "100vh", // Fix: Extend past browser search bar
+          },
         }}
       >
         {drawer}

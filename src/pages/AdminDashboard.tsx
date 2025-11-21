@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react"; // Added useRef
 import type { FC } from "react";
 import {
   Box,
@@ -14,20 +14,29 @@ import {
   TableRow,
   Chip,
   CircularProgress,
-  TextField,
-  Button,
   Snackbar,
   Alert,
+  List,
+  ListItem,
+  ListItemText,
+  Divider,
+  Pagination, // Added Pagination
 } from "@mui/material";
-import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
-import { getFunctions, httpsCallable } from "firebase/functions";
+import {
+  collection,
+  onSnapshot,
+  query,
+  orderBy,
+  // --- NEW IMPORTS ---
+  limit,
+} from "firebase/firestore";
 import { db } from "../firebase";
 import LocationOnIcon from "@mui/icons-material/LocationOn";
 import DirectionsRunIcon from "@mui/icons-material/DirectionsRun";
 import RestaurantIcon from "@mui/icons-material/Restaurant";
 import WarningIcon from "@mui/icons-material/Warning";
 import CampaignIcon from "@mui/icons-material/Campaign";
-import SendIcon from "@mui/icons-material/Send";
+import React from "react";
 
 interface StationData {
   id: string;
@@ -48,15 +57,32 @@ interface GroupData {
   totalScore: number;
 }
 
+// --- NEW INTERFACE ---
+interface AnnouncementData {
+  id: string;
+  message: string;
+  timestamp: any;
+  targets?: string[]; // Added targets field
+}
+
 export const AdminDashboard: FC = () => {
   const [tabValue, setTabValue] = useState(0);
   const [stations, setStations] = useState<StationData[]>([]);
   const [groups, setGroups] = useState<GroupData[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const [announcement, setAnnouncement] = useState("");
-  const [sending, setSending] = useState(false);
-  const [toastOpen, setToastOpen] = useState(false);
+  // --- NEW STATE ---
+  const [receivedAnnouncements, setReceivedAnnouncements] = useState<
+    AnnouncementData[]
+  >([]);
+  const [page, setPage] = useState(1); // Pagination state
+  const itemsPerPage = 10;
+
+  // Notification State for RECEIVED announcements
+  const [notifyOpen, setNotifyOpen] = useState(false);
+  const [latestMsg, setLatestMsg] = useState("");
+  const prevAnnounceId = useRef<string | null>(null);
+  const isFirstLoad = useRef(true); // NEW: Track first load to prevent spam
 
   useEffect(() => {
     const q = query(collection(db, "stations"), orderBy("name"));
@@ -68,13 +94,54 @@ export const AdminDashboard: FC = () => {
     return () => unsub();
   }, []);
 
+  // --- NEW EFFECT: Fetch Admin Announcements ---
+  useEffect(() => {
+    const qAnnounce = query(
+      collection(db, "announcements"),
+      orderBy("timestamp", "desc"),
+      limit(50)
+    );
+    const unsub = onSnapshot(qAnnounce, (snap) => {
+      const list = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() } as AnnouncementData))
+        .filter(
+          (ann) =>
+            !ann.targets ||
+            ann.targets.includes("ADMIN") ||
+            ann.targets.includes("GUEST") // 2. Include GUEST
+        );
+      setReceivedAnnouncements(list);
+    });
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    if (receivedAnnouncements.length > 0) {
+      const latest = receivedAnnouncements[0];
+
+      // Skip notification on initial data load
+      if (isFirstLoad.current) {
+        prevAnnounceId.current = latest.id;
+        isFirstLoad.current = false;
+        return;
+      }
+
+      if (prevAnnounceId.current && prevAnnounceId.current !== latest.id) {
+        setLatestMsg(latest.message);
+        setNotifyOpen(true);
+      }
+      prevAnnounceId.current = latest.id;
+    } else {
+      isFirstLoad.current = false;
+    }
+  }, [receivedAnnouncements]);
+
   useEffect(() => {
     const q = query(collection(db, "groups"));
     const unsub = onSnapshot(q, (snap) => {
       const list = snap.docs.map(
         (d) => ({ id: d.id, ...d.data() } as GroupData)
       );
-      // Natural sort for groups
       list.sort((a, b) =>
         a.name.localeCompare(b.name, undefined, { numeric: true })
       );
@@ -90,23 +157,17 @@ export const AdminDashboard: FC = () => {
     return station ? station.name : "Unknown ID";
   };
 
-  const handleSendAnnouncement = async () => {
-    if (!announcement) return;
-    setSending(true);
-    try {
-      const fn = httpsCallable(
-        getFunctions(undefined, "asia-southeast1"),
-        "makeAnnouncement"
-      );
-      await fn({ message: announcement });
-      setAnnouncement("");
-      setToastOpen(true);
-    } catch (err: any) {
-      alert(`Error: ${err.message}`);
-    } finally {
-      setSending(false);
-    }
-  };
+  // Pagination Logic
+  // Filter out GUEST-only announcements from the LIST view
+  const listAnnouncements = receivedAnnouncements.filter(
+    (ann) => !ann.targets || ann.targets.includes("ADMIN")
+  );
+
+  const totalPages = Math.ceil(listAnnouncements.length / itemsPerPage);
+  const displayedAnnouncements = listAnnouncements.slice(
+    (page - 1) * itemsPerPage,
+    page * itemsPerPage
+  );
 
   if (loading)
     return (
@@ -182,61 +243,6 @@ export const AdminDashboard: FC = () => {
           </Typography>
         </Paper>
       </Box>
-
-      {/* Announcement Card - Updated colors */}
-      <Paper
-        sx={{
-          p: 3,
-          mb: 4,
-          bgcolor: "#fff8e1", // Warm light yellow
-          border: "2px solid #eec45c", // Your gold
-        }}
-      >
-        <Typography
-          variant="h6"
-          gutterBottom
-          sx={{
-            display: "flex",
-            alignItems: "center",
-            gap: 1,
-            color: "#473321", // Your dark brown
-            fontWeight: 600,
-          }}
-        >
-          <CampaignIcon sx={{ color: "#b97539" }} /> {/* Bronze icon */}
-          Broadcast Announcement
-        </Typography>
-        <Box sx={{ display: "flex", gap: 2 }}>
-          <TextField
-            fullWidth
-            variant="outlined"
-            placeholder="Type message to all users..."
-            value={announcement}
-            onChange={(e) => setAnnouncement(e.target.value)}
-            size="small"
-            sx={{
-              bgcolor: "white",
-              "& .MuiOutlinedInput-root": {
-                "&:hover fieldset": {
-                  borderColor: "#b97539", // Bronze on hover
-                },
-                "&.Mui-focused fieldset": {
-                  borderColor: "#b97539", // Bronze when focused
-                },
-              },
-            }}
-          />
-          <Button
-            variant="contained"
-            color="primary" // Use your bronze primary color
-            endIcon={<SendIcon />}
-            disabled={!announcement || sending}
-            onClick={handleSendAnnouncement}
-          >
-            Send
-          </Button>
-        </Box>
-      </Paper>
 
       <Paper sx={{ mb: 2 }}>
         <Tabs
@@ -361,9 +367,7 @@ export const AdminDashboard: FC = () => {
                           size="small"
                         />
                       )}
-                      {g.status === "IDLE" && (
-                        <Chip label="Idle" size="small" />
-                      )}
+                      {g.status === "IDLE" && <Chip label="Idle" size="small" />}
                     </TableCell>
                     <TableCell>{currentLocation}</TableCell>
                     <TableCell>{destination}</TableCell>
@@ -376,18 +380,87 @@ export const AdminDashboard: FC = () => {
         </TableContainer>
       )}
 
+      {/* === NEW: ADMIN ANNOUNCEMENTS VIEW (MOVED HERE) === */}
+      <Box sx={{ mt: 4, mb: 4 }}>
+        <Typography
+          variant="h6"
+          gutterBottom
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            gap: 1,
+            color: "text.secondary",
+          }}
+        >
+          <CampaignIcon color="error" /> Admin Announcements
+        </Typography>
+        <Paper elevation={1} sx={{ borderRadius: 3, overflow: "hidden" }}>
+          {displayedAnnouncements.length === 0 ? (
+            <Box sx={{ p: 3, textAlign: "center", color: "text.secondary" }}>
+              <Typography variant="body2">
+                No announcements for Admins yet.
+              </Typography>
+            </Box>
+          ) : (
+            <>
+              <List disablePadding>
+                {displayedAnnouncements.map((ann, index) => (
+                  <React.Fragment key={ann.id}>
+                    {index > 0 && <Divider />}
+                    <ListItem sx={{ py: 1, px: 2 }}> {/* Reduced padding */}
+                      <ListItemText
+                        primary={ann.message}
+                        secondary={ann.timestamp
+                          ?.toDate()
+                          .toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        primaryTypographyProps={{
+                          fontWeight: 500,
+                          component: "div",
+                          style: {
+                            whiteSpace: "pre-wrap",
+                            wordBreak: "break-word",
+                            fontSize: "0.95rem",
+                          },
+                        }}
+                      />
+                    </ListItem>
+                  </React.Fragment>
+                ))}
+              </List>
+              {totalPages > 1 && (
+                <Box sx={{ display: "flex", justifyContent: "center", py: 2 }}>
+                  <Pagination
+                    count={totalPages}
+                    page={page}
+                    onChange={(_, p) => setPage(p)}
+                    color="primary"
+                    size="small"
+                  />
+                </Box>
+              )}
+            </>
+          )}
+        </Paper>
+      </Box>
+
+      {/* New Snackbar for RECEIVING announcements */}
       <Snackbar
-        open={toastOpen}
-        autoHideDuration={3000}
-        onClose={() => setToastOpen(false)}
-        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+        open={notifyOpen}
+        autoHideDuration={5000} // Changed to 5 seconds
+        onClose={() => setNotifyOpen(false)}
+        anchorOrigin={{ vertical: "top", horizontal: "center" }}
       >
         <Alert
-          onClose={() => setToastOpen(false)}
-          severity="success"
+          onClose={() => setNotifyOpen(false)}
+          severity="info"
+          variant="filled"
+          icon={<CampaignIcon />}
           sx={{ width: "100%" }}
         >
-          Announcement sent successfully.
+          New Admin Announcement: {latestMsg}
         </Alert>
       </Snackbar>
     </Box>
