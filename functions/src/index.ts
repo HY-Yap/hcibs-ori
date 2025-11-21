@@ -664,8 +664,6 @@ export const oglStartTravel = onCall(
   async (request: CallableRequest<{ stationId: string; eta: string }>) => {
     if (!request.auth)
       throw new HttpsError("unauthenticated", "Must be logged in.");
-
-    // Helper logic inlined for simplicity/safety in this full file replacement
     const userDoc = await admin
       .firestore()
       .collection("users")
@@ -699,6 +697,19 @@ export const oglStartTravel = onCall(
       batch.update(admin.firestore().collection("stations").doc(stationId), {
         travelingCount: admin.firestore.FieldValue.increment(1),
       });
+
+      // 4. IMPROVEMENT: Send Announcement to Station Master
+      const groupName = (
+        await admin.firestore().collection("groups").doc(groupId).get()
+      ).data()?.name;
+      const announceRef = admin.firestore().collection("announcements").doc();
+      batch.set(announceRef, {
+        message: `${groupName} is now heading towards your station. Their estimated arrival time is ${eta}.`,
+        targets: [`SM:${stationId}`], // Targeted specifically to this station's SM
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        createdBy: "SYSTEM",
+      });
+
       await batch.commit();
       return { success: true };
     } catch (error: any) {
@@ -744,6 +755,17 @@ export const oglArrive = onCall(async (request: CallableRequest<void>) => {
       travelingCount: admin.firestore.FieldValue.increment(-1),
       arrivedCount: admin.firestore.FieldValue.increment(1),
     });
+
+    // 4. IMPROVEMENT: Send Announcement to Station Master
+    const groupName = groupDoc.data()?.name;
+    const announceRef = admin.firestore().collection("announcements").doc();
+    batch.set(announceRef, {
+      message: `${groupName} has arrived at your station.`,
+      targets: [`SM:${currentDestination}`], // Targeted specifically to this station's SM
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      createdBy: "SYSTEM",
+    });
+
     await batch.commit();
     return { success: true };
   } catch (error: any) {
@@ -757,7 +779,7 @@ export const oglArrive = onCall(async (request: CallableRequest<void>) => {
 export const oglDepart = onCall(async (request: CallableRequest<void>) => {
   if (!request.auth)
     throw new HttpsError("unauthenticated", "Must be logged in.");
-  // ... (getCallerGroupId helper logic here if you didn't use the standalone function) ...
+  // ...existing code...
   const userDoc = await admin
     .firestore()
     .collection("users")
@@ -766,7 +788,7 @@ export const oglDepart = onCall(async (request: CallableRequest<void>) => {
   if (userDoc.data()?.role !== "OGL")
     throw new HttpsError("permission-denied", "Only OGLs.");
   const groupId = userDoc.data()?.groupId;
-  // ...
+  // ...existing code...
 
   const groupDoc = await admin
     .firestore()
@@ -787,12 +809,25 @@ export const oglDepart = onCall(async (request: CallableRequest<void>) => {
     }
     batch.update(admin.firestore().collection("groups").doc(groupId), {
       status: "IDLE",
-      // --- FIX 3: Save where they departed from ---
+      // ...existing code...
       lastStationId: currentStationId,
-      // -------------------------------------------
+      // ...existing code...
       destinationId: admin.firestore.FieldValue.delete(),
       destinationEta: admin.firestore.FieldValue.delete(),
     });
+
+    // 4. IMPROVEMENT: Send Announcement to Station Master
+    if (currentStationId) {
+      const groupName = groupDoc.data()?.name;
+      const announceRef = admin.firestore().collection("announcements").doc();
+      batch.set(announceRef, {
+        message: `${groupName} has decided to leave the station now.`,
+        targets: [`SM:${currentStationId}`],
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        createdBy: "SYSTEM",
+      });
+    }
+
     await batch.commit();
     return { success: true };
   } catch (error: any) {
@@ -966,7 +1001,7 @@ export const resetGame = onCall(async (request: CallableRequest<void>) => {
 // 23. MAKE ANNOUNCEMENT (ADMIN ONLY)
 // ===================================================================
 export const makeAnnouncement = onCall(
-  async (request: CallableRequest<{ message: string }>) => {
+  async (request: CallableRequest<{ message: string; targets?: string[] }>) => {
     if (!request.auth)
       throw new HttpsError("unauthenticated", "Must be logged in.");
     const callerDoc = await admin
@@ -977,13 +1012,22 @@ export const makeAnnouncement = onCall(
     if (callerDoc.data()?.role !== "ADMIN")
       throw new HttpsError("permission-denied", "Admin only.");
 
-    const { message } = request.data;
+    const { message, targets } = request.data;
     if (!message)
       throw new HttpsError("invalid-argument", "Message is required.");
+
+    // If targets is provided and not empty, use it. Otherwise default to ALL.
+    const finalTargets =
+      targets && targets.length > 0
+        ? targets
+        : ["OGL", "SM", "ADMIN", "GUEST"];
+
+    console.log(`Creating announcement for: ${finalTargets.join(", ")}`);
 
     try {
       await admin.firestore().collection("announcements").add({
         message,
+        targets: finalTargets,
         timestamp: admin.firestore.FieldValue.serverTimestamp(),
         createdBy: request.auth.uid,
       });
@@ -1501,7 +1545,7 @@ export const getPublicLeaderboard = onRequest(
         name: doc.data().name,
         totalScore: doc.data().totalScore || 0,
         houseId: doc.data().houseId,
-        lastScoreTimestamp: doc.data().lastScoreTimestamp,
+        lastScoreTimestamp: doc.data()?.lastScoreTimestamp,
       }));
 
       // Sort Groups: Score DESC, Time ASC (Earlier time wins ties)
@@ -1715,6 +1759,75 @@ export const updateHouse = onCall(
           name,
           color: color || "#000000",
         });
+      return { success: true };
+    } catch (error: any) {
+      throw new HttpsError("internal", error.message);
+    }
+  }
+);
+
+// ===================================================================
+// 37. DELETE ALL ANNOUNCEMENTS (ADMIN ONLY)
+// ===================================================================
+export const deleteAllAnnouncements = onCall(
+  async (request: CallableRequest<void>) => {
+    if (!request.auth)
+      throw new HttpsError("unauthenticated", "Must be logged in.");
+    const callerDoc = await admin
+      .firestore()
+      .collection("users")
+      .doc(request.auth.uid)
+      .get();
+    if (callerDoc.data()?.role !== "ADMIN")
+      throw new HttpsError("permission-denied", "Admin only.");
+
+    try {
+      const batch = admin.firestore().batch();
+      const snapshot = await admin
+        .firestore()
+        .collection("announcements")
+        .get();
+
+      if (snapshot.empty) {
+        return { success: true, message: "No announcements to delete." };
+      }
+
+      snapshot.docs.forEach((doc) => {
+        batch.delete(doc.ref);
+      });
+
+      await batch.commit();
+      return {
+        success: true,
+        message: `Deleted ${snapshot.size} announcements.`,
+      };
+    } catch (error: any) {
+      throw new HttpsError("internal", error.message);
+    }
+  }
+);
+
+// ===================================================================
+// 38. DELETE SINGLE ANNOUNCEMENT (ADMIN ONLY)
+// ===================================================================
+export const deleteAnnouncement = onCall(
+  async (request: CallableRequest<{ id: string }>) => {
+    if (!request.auth)
+      throw new HttpsError("unauthenticated", "Must be logged in.");
+    const callerDoc = await admin
+      .firestore()
+      .collection("users")
+      .doc(request.auth.uid)
+      .get();
+    if (callerDoc.data()?.role !== "ADMIN")
+      throw new HttpsError("permission-denied", "Admin only.");
+
+    try {
+      await admin
+        .firestore()
+        .collection("announcements")
+        .doc(request.data.id)
+        .delete();
       return { success: true };
     } catch (error: any) {
       throw new HttpsError("internal", error.message);

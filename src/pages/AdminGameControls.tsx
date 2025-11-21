@@ -191,28 +191,32 @@ export const AdminGameControls: FC = () => {
         >
           <WarningIcon /> Danger Zone
         </Typography>
-        <Typography paragraph sx={{ color: "#473321" }}>
-          Resetting the game will{" "}
-          <strong>
-            delete ALL scores, progress, logs, and uploaded submissions
-          </strong>
-          . It will return all groups to 0 points and 'IDLE' status and remove
-          files stored under the submissions/ prefix in Cloud Storage.
-        </Typography>
-        <Button
-          variant="outlined"
-          sx={{
-            color: "#c62828",
-            borderColor: "#c62828",
-            "&:hover": {
-              borderColor: "#b71c1c",
-              bgcolor: "#ffebee",
-            },
-          }}
-          onClick={() => setResetOpen(true)}
-        >
-          RESET GAME COMPLETELY
-        </Button>
+        
+        {/* Reset Game Section */}
+        <Box sx={{ mb: 4 }}>
+          <Typography paragraph sx={{ color: "#473321" }}>
+            Resetting the game will{" "}
+            <strong>
+              delete ALL scores, progress, logs, and uploaded submissions
+            </strong>
+            . It will return all groups to 0 points and 'IDLE' status and remove
+            files stored under the submissions/ prefix in Cloud Storage.
+          </Typography>
+          <Button
+            variant="outlined"
+            sx={{
+              color: "#c62828",
+              borderColor: "#c62828",
+              "&:hover": {
+                borderColor: "#b71c1c",
+                bgcolor: "#ffebee",
+              },
+            }}
+            onClick={() => setResetOpen(true)}
+          >
+            RESET GAME COMPLETELY
+          </Button>
+        </Box>
       </Box>
 
       {/* Dialog - keep mostly the same but update button colors */}

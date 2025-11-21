@@ -17,6 +17,8 @@ import {
   ListItemText,
   Divider,
   ListItemButton,
+  Snackbar,
+  Pagination, // Added Pagination
 } from "@mui/material";
 import { useAuth } from "../context/AuthContext";
 import {
@@ -26,6 +28,9 @@ import {
   collection,
   query,
   where,
+  // --- NEW IMPORTS ---
+  orderBy,
+  limit,
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { StationSelector } from "../components/StationSelector";
@@ -34,6 +39,8 @@ import RestaurantIcon from "@mui/icons-material/Restaurant";
 import LockIcon from "@mui/icons-material/Lock";
 import LockOpenIcon from "@mui/icons-material/LockOpen";
 import ExitToAppIcon from "@mui/icons-material/ExitToApp";
+// --- NEW IMPORT ---
+import CampaignIcon from "@mui/icons-material/Campaign";
 import { SmActionModal, type GroupForModal } from "../components/SmActionModal";
 
 interface StationData {
@@ -51,12 +58,31 @@ interface GroupData {
   totalScore: number;
 }
 
+// --- NEW INTERFACE ---
+interface AnnouncementData {
+  id: string;
+  message: string;
+  timestamp: any;
+  targets?: string[]; // Added targets field
+}
+
 export const SmDashboard: React.FC = () => {
   const { currentUser } = useAuth();
   const [stationId, setStationId] = useState<string | null>(null);
   const [stationData, setStationData] = useState<StationData | null>(null);
   const [onTheWayGroups, setOnTheWayGroups] = useState<GroupData[]>([]);
   const [arrivedGroups, setArrivedGroups] = useState<GroupData[]>([]);
+  // --- NEW STATE ---
+  const [announcements, setAnnouncements] = useState<AnnouncementData[]>([]);
+  const [page, setPage] = useState(1); // Pagination state
+  const itemsPerPage = 10;
+
+  // Notification State
+  const [notifyOpen, setNotifyOpen] = useState(false);
+  const [latestMsg, setLatestMsg] = useState("");
+  const prevAnnounceId = useRef<string | null>(null);
+  const isFirstLoad = useRef(true); // NEW
+
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -86,6 +112,50 @@ export const SmDashboard: React.FC = () => {
     };
     check();
   }, [currentUser]);
+
+  // --- NEW EFFECT: Fetch SM Announcements ---
+  useEffect(() => {
+    const qAnnounce = query(
+      collection(db, "announcements"),
+      orderBy("timestamp", "desc"),
+      limit(50)
+    );
+    const unsub = onSnapshot(qAnnounce, (snap) => {
+      const list = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() } as AnnouncementData))
+        .filter(
+          (ann) =>
+            !ann.targets ||
+            ann.targets.includes("SM") ||
+            ann.targets.includes("GUEST") || // 2. Include GUEST
+            (stationId && ann.targets.includes(`SM:${stationId}`)) // 4. Include Targeted SM
+        );
+      setAnnouncements(list);
+    });
+    return () => unsub();
+  }, [stationId]); // Re-run when stationId is available
+
+  // Detect new announcements for notification
+  useEffect(() => {
+    if (announcements.length > 0) {
+      const latest = announcements[0];
+
+      // Skip notification on initial data load
+      if (isFirstLoad.current) {
+        prevAnnounceId.current = latest.id;
+        isFirstLoad.current = false;
+        return;
+      }
+
+      if (prevAnnounceId.current && prevAnnounceId.current !== latest.id) {
+        setLatestMsg(latest.message);
+        setNotifyOpen(true);
+      }
+      prevAnnounceId.current = latest.id;
+    } else {
+      isFirstLoad.current = false;
+    }
+  }, [announcements]);
 
   useEffect(() => {
     if (!stationId) return;
@@ -231,6 +301,21 @@ export const SmDashboard: React.FC = () => {
         </Button>
       </Box>
     );
+
+  // Pagination Logic
+  // Filter out GUEST-only announcements from the LIST view
+  const listAnnouncements = announcements.filter(
+    (ann) =>
+      !ann.targets ||
+      ann.targets.includes("SM") ||
+      (stationId && ann.targets.includes(`SM:${stationId}`))
+  );
+
+  const totalPages = Math.ceil(listAnnouncements.length / itemsPerPage);
+  const displayedAnnouncements = listAnnouncements.slice(
+    (page - 1) * itemsPerPage,
+    page * itemsPerPage
+  );
 
   return (
     <Box sx={{ pb: 4 }}>
@@ -445,6 +530,90 @@ export const SmDashboard: React.FC = () => {
           </List>
         </Paper>
       </Box>
+
+      {/* === NEW: SM ANNOUNCEMENTS === */}
+      <Box sx={{ mt: 4 }}>
+        <Typography
+          variant="h6"
+          gutterBottom
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            gap: 1,
+            color: "text.secondary",
+          }}
+        >
+          <CampaignIcon color="error" /> SM Announcements
+        </Typography>
+        <Paper elevation={1} sx={{ borderRadius: 3, overflow: "hidden" }}>
+          {displayedAnnouncements.length === 0 ? (
+            <Box sx={{ p: 3, textAlign: "center", color: "text.secondary" }}>
+              <Typography variant="body2">
+                No announcements for SMs yet.
+              </Typography>
+            </Box>
+          ) : (
+            <>
+              <List disablePadding>
+                {displayedAnnouncements.map((ann, index) => (
+                  <React.Fragment key={ann.id}>
+                    {index > 0 && <Divider />}
+                    <ListItem sx={{ py: 1, px: 2 }}> {/* Reduced padding */}
+                      <ListItemText
+                        primary={ann.message}
+                        secondary={ann.timestamp
+                          ?.toDate()
+                          .toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        primaryTypographyProps={{
+                          fontWeight: 500,
+                          component: "div",
+                          style: {
+                            whiteSpace: "pre-wrap",
+                            wordBreak: "break-word",
+                            fontSize: "0.95rem",
+                          },
+                        }}
+                      />
+                    </ListItem>
+                  </React.Fragment>
+                ))}
+              </List>
+              {totalPages > 1 && (
+                <Box sx={{ display: "flex", justifyContent: "center", py: 2 }}>
+                  <Pagination
+                    count={totalPages}
+                    page={page}
+                    onChange={(_, p) => setPage(p)}
+                    color="primary"
+                    size="small"
+                  />
+                </Box>
+              )}
+            </>
+          )}
+        </Paper>
+      </Box>
+
+      {/* Notification Snackbar */}
+      <Snackbar
+        open={notifyOpen}
+        autoHideDuration={5000}
+        onClose={() => setNotifyOpen(false)}
+        anchorOrigin={{ vertical: "top", horizontal: "center" }}
+      >
+        <Alert
+          onClose={() => setNotifyOpen(false)}
+          severity="info"
+          variant="filled"
+          icon={<CampaignIcon />}
+          sx={{ width: "100%" }}
+        >
+          New Announcement: {latestMsg}
+        </Alert>
+      </Snackbar>
 
       <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)}>
         <DialogTitle>

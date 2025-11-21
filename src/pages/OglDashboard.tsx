@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react"; // Added useRef
 import type { FC } from "react";
 import {
   Box,
@@ -12,6 +12,8 @@ import {
   ListItem,
   ListItemText,
   Divider,
+  Snackbar,
+  Pagination, // Added Pagination
 } from "@mui/material";
 import { useAuth } from "../context/AuthContext";
 import {
@@ -41,6 +43,7 @@ interface AnnouncementData {
   id: string;
   message: string;
   timestamp: any;
+  targets?: string[]; // Added targets field
 }
 
 export const OglDashboard: FC = () => {
@@ -49,8 +52,17 @@ export const OglDashboard: FC = () => {
   const [groupData, setGroupData] = useState<GroupData | null>(null);
   const [rank, setRank] = useState<number>(0);
   const [announcements, setAnnouncements] = useState<AnnouncementData[]>([]);
+  const [page, setPage] = useState(1); // Pagination state
+  const itemsPerPage = 10;
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Notification State
+  const [notifyOpen, setNotifyOpen] = useState(false);
+  const [latestMsg, setLatestMsg] = useState("");
+  const prevAnnounceId = useRef<string | null>(null);
+  const isFirstLoad = useRef(true); // NEW
 
   const [totalStations, setTotalStations] = useState(0);
   const [totalSideQuests, setTotalSideQuests] = useState(0);
@@ -70,7 +82,7 @@ export const OglDashboard: FC = () => {
     fetchTotals();
   }, []);
 
-  // 2. Real-time listeners
+  // 2. Real-time listeners (Group & Rank)
   useEffect(() => {
     if (!profile?.groupId) {
       setLoading(false);
@@ -92,7 +104,7 @@ export const OglDashboard: FC = () => {
       }
     );
 
-    // B. Listen to ALL groups to calculate RANK (Score DESC, Time ASC for tie-breaking)
+    // B. Listen to ALL groups to calculate RANK
     const qRank = query(
       collection(db, "groups"),
       orderBy("totalScore", "desc"),
@@ -103,24 +115,74 @@ export const OglDashboard: FC = () => {
       setRank(index + 1);
     });
 
-    // C. Listen to Announcements (Latest 3)
-    const qAnnounce = query(
-      collection(db, "announcements"),
-      orderBy("timestamp", "desc"),
-      limit(3)
-    );
-    const unsubAnnounce = onSnapshot(qAnnounce, (snap) => {
-      setAnnouncements(
-        snap.docs.map((d) => ({ id: d.id, ...d.data() } as AnnouncementData))
-      );
-    });
-
     return () => {
       unsubGroup();
       unsubRank();
-      unsubAnnounce();
     };
   }, [profile]);
+
+  // C. Listen to Announcements (MOVED OUTSIDE to fix crash)
+  useEffect(() => {
+    const qAnnounce = query(
+      collection(db, "announcements"),
+      orderBy("timestamp", "desc"),
+      limit(50)
+    );
+    const unsubAnnounce = onSnapshot(
+      qAnnounce,
+      (snap) => {
+        const list = snap.docs
+          .map((d) => ({ id: d.id, ...d.data() } as AnnouncementData))
+          .filter(
+            (ann) =>
+              !ann.targets ||
+              ann.targets.includes("OGL") ||
+              ann.targets.includes("GUEST") // Keep GUEST here for Notification
+          );
+        setAnnouncements(list);
+      },
+      (err) => {
+        console.error("Announcements error:", err);
+      }
+    );
+    return () => unsubAnnounce();
+  }, []);
+
+  // Detect new announcements for notification
+  useEffect(() => {
+    if (announcements.length > 0) {
+      const latest = announcements[0];
+
+      // Skip notification on initial data load
+      if (isFirstLoad.current) {
+        prevAnnounceId.current = latest.id;
+        isFirstLoad.current = false;
+        return;
+      }
+
+      // Only notify if the ID has actually changed (new announcement added to top)
+      if (prevAnnounceId.current && prevAnnounceId.current !== latest.id) {
+        setLatestMsg(latest.message);
+        setNotifyOpen(true);
+      }
+      // Update ref
+      prevAnnounceId.current = latest.id;
+    } else {
+      isFirstLoad.current = false;
+    }
+  }, [announcements]);
+
+  // Pagination Logic
+  // Filter out GUEST-only announcements from the LIST view
+  const listAnnouncements = announcements.filter(
+    (ann) => !ann.targets || ann.targets.includes("OGL")
+  );
+
+  const totalPages = Math.ceil(listAnnouncements.length / itemsPerPage);
+  const displayedAnnouncements = listAnnouncements.slice(
+    (page - 1) * itemsPerPage,
+    page * itemsPerPage
+  );
 
   if (loading)
     return (
@@ -294,52 +356,88 @@ export const OglDashboard: FC = () => {
       </Box>
 
       {/* === ANNOUNCEMENT LOG === */}
-      {announcements.length > 0 && (
-        <Box sx={{ mt: 4 }}>
-          <Typography
-            variant="h6"
-            gutterBottom
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              gap: 1,
-              color: "text.secondary",
-            }}
-          >
-            <CampaignIcon color="error" /> Recent Announcements
-          </Typography>
-          <Paper elevation={1} sx={{ borderRadius: 3, overflow: "hidden" }}>
-            {" "}
-            {/* Changed from elevation={2} */}
-            <List disablePadding>
-              {announcements.map((ann, index) => (
-                <React.Fragment key={ann.id}>
-                  {index > 0 && <Divider />}
-                  <ListItem sx={{ py: 2, px: 3 }}>
-                    <ListItemText
-                      primary={ann.message}
-                      secondary={ann.timestamp
-                        ?.toDate()
-                        .toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      primaryTypographyProps={{
-                        fontWeight: 500,
-                        component: "div",
-                        style: {
-                          whiteSpace: "pre-wrap",
-                          wordBreak: "break-word",
-                        },
-                      }}
-                    />
-                  </ListItem>
-                </React.Fragment>
-              ))}
-            </List>
-          </Paper>
-        </Box>
-      )}
+      <Box sx={{ mt: 4 }}>
+        <Typography
+          variant="h6"
+          gutterBottom
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            gap: 1,
+            color: "text.secondary",
+          }}
+        >
+          <CampaignIcon color="error" /> OGL Announcements
+        </Typography>
+        <Paper elevation={1} sx={{ borderRadius: 3, overflow: "hidden" }}>
+          {displayedAnnouncements.length === 0 ? (
+            <Box sx={{ p: 3, textAlign: "center", color: "text.secondary" }}>
+              <Typography variant="body2">
+                No announcements for OGLs yet.
+              </Typography>
+            </Box>
+          ) : (
+            <>
+              <List disablePadding>
+                {displayedAnnouncements.map((ann, index) => (
+                  <React.Fragment key={ann.id}>
+                    {index > 0 && <Divider />}
+                    <ListItem sx={{ py: 1, px: 2 }}> {/* Reduced padding */}
+                      <ListItemText
+                        primary={ann.message}
+                        secondary={ann.timestamp
+                          ?.toDate()
+                          .toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        primaryTypographyProps={{
+                          fontWeight: 500,
+                          component: "div",
+                          style: {
+                            whiteSpace: "pre-wrap",
+                            wordBreak: "break-word",
+                            fontSize: "0.95rem", // Slightly smaller text
+                          },
+                        }}
+                      />
+                    </ListItem>
+                  </React.Fragment>
+                ))}
+              </List>
+              {totalPages > 1 && (
+                <Box sx={{ display: "flex", justifyContent: "center", py: 2 }}>
+                  <Pagination
+                    count={totalPages}
+                    page={page}
+                    onChange={(_, p) => setPage(p)}
+                    color="primary"
+                    size="small"
+                  />
+                </Box>
+              )}
+            </>
+          )}
+        </Paper>
+      </Box>
+
+      {/* Notification Snackbar */}
+      <Snackbar
+        open={notifyOpen}
+        autoHideDuration={5000}
+        onClose={() => setNotifyOpen(false)}
+        anchorOrigin={{ vertical: "top", horizontal: "center" }}
+      >
+        <Alert
+          onClose={() => setNotifyOpen(false)}
+          severity="info" // 1. Brown/Info color
+          variant="filled"
+          icon={<CampaignIcon />}
+          sx={{ width: "100%" }}
+        >
+          New Announcement: {latestMsg}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };
