@@ -63,6 +63,7 @@ interface HouseData {
 
 // --- HELPER: SEND PUSH TO SPECIFIC STATION MASTER ---
 const notifyStationMaster = async (stationId: string, message: string) => {
+  console.log(`🔔 notifyStationMaster called for Station: ${stationId}`);
   try {
     // 1. Find the user who is an SM AND has selected this station
     const smQuery = await admin
@@ -72,34 +73,49 @@ const notifyStationMaster = async (stationId: string, message: string) => {
       .where("selectedStationId", "==", stationId)
       .get();
 
+    console.log(`   Found ${smQuery.size} SM(s) assigned to this station.`);
+
     const tokens: string[] = [];
     smQuery.forEach((doc) => {
       const data = doc.data();
-      if (data.fcmToken) tokens.push(data.fcmToken);
+      if (data.fcmToken) {
+        console.log(`   -> Found token for SM: ${data.displayName}`);
+        tokens.push(data.fcmToken);
+      } else {
+        console.log(`   -> Found SM ${data.displayName}, but NO TOKEN.`);
+      }
     });
 
     if (tokens.length > 0) {
-      console.log(
-        `Sending push to ${tokens.length} SMs at station ${stationId}`
-      );
-      // 2. Send Data-Only Notification
-      await admin.messaging().sendEachForMulticast({
+      console.log(`   🚀 Sending push to ${tokens.length} tokens...`);
+      const response = await admin.messaging().sendEachForMulticast({
         tokens: tokens,
         data: {
           title: "Station Alert",
           body: message,
-          url: "/sm", // Clicking opens their dashboard
+          url: "/sm",
         },
       });
+      console.log(
+        `   ✅ Success: ${response.successCount}, Failed: ${response.failureCount}`
+      );
+      if (response.failureCount > 0) {
+        console.log(
+          "   ❌ Failure details:",
+          JSON.stringify(response.responses)
+        );
+      }
+    } else {
+      console.log("   ⚠️ No tokens found. Notification NOT sent.");
     }
   } catch (err) {
-    console.error("Failed to notify SM:", err);
-    // We don't throw error here because we don't want to break the main action
+    console.error("   🔥 Failed to notify SM:", err);
   }
 };
 
 // --- HELPER: SEND PUSH TO OGLs OF A GROUP ---
 const notifyGroup = async (groupId: string, message: string) => {
+  console.log(`🔔 notifyGroup called for Group: ${groupId}`);
   try {
     const oglQuery = await admin
       .firestore()
@@ -108,24 +124,35 @@ const notifyGroup = async (groupId: string, message: string) => {
       .where("groupId", "==", groupId)
       .get();
 
+    console.log(`   Found ${oglQuery.size} OGL(s) assigned to this group.`);
+
     const tokens: string[] = [];
     oglQuery.forEach((doc) => {
       const data = doc.data();
-      if (data.fcmToken) tokens.push(data.fcmToken);
+      if (data.fcmToken) {
+        console.log(`   -> Found token for OGL: ${data.displayName}`);
+        tokens.push(data.fcmToken);
+      } else {
+        console.log(`   -> Found OGL ${data.displayName}, but NO TOKEN.`);
+      }
     });
 
     if (tokens.length > 0) {
+      console.log(`   🚀 Sending push to ${tokens.length} tokens...`);
       await admin.messaging().sendEachForMulticast({
         tokens: tokens,
         data: {
           title: "New Message",
           body: message,
-          url: "/ogl/journey", // Clicking opens their journey page
+          url: "/ogl/journey",
         },
       });
+      console.log("   ✅ Notification sent.");
+    } else {
+      console.log("   ⚠️ No tokens found. Notification NOT sent.");
     }
   } catch (err) {
-    console.error("Failed to notify Group:", err);
+    console.error("   🔥 Failed to notify Group:", err);
   }
 };
 
