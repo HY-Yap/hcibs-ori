@@ -40,11 +40,20 @@ This repository serves both as the production codebase for the current year and 
 
 **My Journey**
 
+<<<<<<< HEAD
+  - Guided flow: select next station → travelling → arrival
+  - Station list and status indicators
+  - Real-time ETA updates
+  - Chat with Station Masters when travelling
+  - Lunch break mode
+  - Submission portal for unmanned stations
+=======
 * Guided flow: select next station → travelling → arrival
 * Station list and live traffic status indicators (Open/Closed)
 * Real-time ETA updates (pushes notifications to relevant Station Masters)
 * Lunch break mode
 * Submission portal for unmanned stations (Photo/Video upload)
+>>>>>>> origin/main
 
 **Side Quests**
 
@@ -57,10 +66,18 @@ This repository serves both as the production codebase for the current year and 
 
 **Station Dashboard**
 
+<<<<<<< HEAD
+  - Open/close stations (temporary or permanent)
+  - Monitor relevant group movement and statuses (OTW, arrived)
+  - View ETA information
+  - Chat with Groups that are on the way
+  - Lunch break mode
+=======
 * Open/close stations (temporary "Lunch" or permanent "Close")
 * Monitor relevant group movement and statuses (OTW, arrived)
 * View ETA information
 * Lunch break mode (blocks incoming groups until queue clears)
+>>>>>>> origin/main
 
 **Scoring Tools**
 
