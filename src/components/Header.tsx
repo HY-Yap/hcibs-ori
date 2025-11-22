@@ -33,6 +33,9 @@ import {
   orderBy,
   limit,
   onSnapshot,
+  doc,
+  updateDoc,
+  deleteField,
 } from "firebase/firestore"; // Added firestore imports
 
 type MenuItemType =
@@ -117,6 +120,13 @@ const Header: React.FC = () => {
 
   const handleLogout = async () => {
     try {
+      // 2. NEW: Delete the token from Firestore BEFORE logging out
+      if (currentUser) {
+        await updateDoc(doc(db, "users", currentUser.uid), {
+          fcmToken: deleteField(),
+        });
+      }
+
       await signOut(auth);
       navigate("/");
     } catch (err) {
