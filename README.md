@@ -42,6 +42,7 @@ This repository serves both as the production codebase for the current year and 
   - Guided flow: select next station → travelling → arrival
   - Station list and status indicators
   - Real-time ETA updates
+  - Chat with Station Masters when travelling
   - Lunch break mode
   - Submission portal for unmanned stations
 
@@ -59,6 +60,7 @@ This repository serves both as the production codebase for the current year and 
   - Open/close stations (temporary or permanent)
   - Monitor relevant group movement and statuses (OTW, arrived)
   - View ETA information
+  - Chat with Groups that are on the way
   - Lunch break mode
 
 - **Scoring Tools**

@@ -18,7 +18,7 @@ import {
   Divider,
   ListItemButton,
   Snackbar,
-  Pagination, // Added Pagination
+  Pagination,
 } from "@mui/material";
 import { useAuth } from "../context/AuthContext";
 import {
@@ -28,7 +28,6 @@ import {
   collection,
   query,
   where,
-  // --- NEW IMPORTS ---
   orderBy,
   limit,
 } from "firebase/firestore";
@@ -39,9 +38,10 @@ import RestaurantIcon from "@mui/icons-material/Restaurant";
 import LockIcon from "@mui/icons-material/Lock";
 import LockOpenIcon from "@mui/icons-material/LockOpen";
 import ExitToAppIcon from "@mui/icons-material/ExitToApp";
-// --- NEW IMPORT ---
+import ChatIcon from "@mui/icons-material/Chat"; // <-- Chat imports
 import CampaignIcon from "@mui/icons-material/Campaign";
 import { SmActionModal, type GroupForModal } from "../components/SmActionModal";
+import { ChatWindow } from "../components/ChatWindow"; // <-- Chat Component
 
 interface StationData {
   id: string;
@@ -58,12 +58,19 @@ interface GroupData {
   totalScore: number;
 }
 
-// --- NEW INTERFACE ---
 interface AnnouncementData {
   id: string;
   message: string;
   timestamp: any;
-  targets?: string[]; // Added targets field
+  targets?: string[];
+}
+
+// --- NEW CHAT INTERFACE ---
+interface ChatData {
+  id: string;
+  groupName: string;
+  lastMessage: string;
+  unreadCountSM: number;
 }
 
 export const SmDashboard: React.FC = () => {
@@ -72,16 +79,16 @@ export const SmDashboard: React.FC = () => {
   const [stationData, setStationData] = useState<StationData | null>(null);
   const [onTheWayGroups, setOnTheWayGroups] = useState<GroupData[]>([]);
   const [arrivedGroups, setArrivedGroups] = useState<GroupData[]>([]);
-  // --- NEW STATE ---
+
   const [announcements, setAnnouncements] = useState<AnnouncementData[]>([]);
-  const [page, setPage] = useState(1); // Pagination state
+  const [page, setPage] = useState(1);
   const itemsPerPage = 10;
 
-  // Notification State
+  // Notification State (Existing)
   const [notifyOpen, setNotifyOpen] = useState(false);
   const [latestMsg, setLatestMsg] = useState("");
   const prevAnnounceId = useRef<string | null>(null);
-  const isFirstLoad = useRef(true); // NEW
+  const isFirstLoad = useRef(true);
 
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -95,7 +102,10 @@ export const SmDashboard: React.FC = () => {
     null
   );
 
-  // Prevent repeated automatic finalization attempts
+  // --- NEW CHAT STATE ---
+  const [activeChats, setActiveChats] = useState<ChatData[]>([]);
+  const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+
   const finalizingRef = useRef(false);
 
   useEffect(() => {
@@ -113,7 +123,7 @@ export const SmDashboard: React.FC = () => {
     check();
   }, [currentUser]);
 
-  // --- NEW EFFECT: Fetch SM Announcements ---
+  // Fetch Announcements (Existing)
   useEffect(() => {
     const qAnnounce = query(
       collection(db, "announcements"),
@@ -127,26 +137,23 @@ export const SmDashboard: React.FC = () => {
           (ann) =>
             !ann.targets ||
             ann.targets.includes("SM") ||
-            ann.targets.includes("GUEST") || // 2. Include GUEST
-            (stationId && ann.targets.includes(`SM:${stationId}`)) // 4. Include Targeted SM
+            ann.targets.includes("GUEST") ||
+            (stationId && ann.targets.includes(`SM:${stationId}`))
         );
       setAnnouncements(list);
     });
     return () => unsub();
-  }, [stationId]); // Re-run when stationId is available
+  }, [stationId]);
 
-  // Detect new announcements for notification
+  // Detect new announcements (Existing)
   useEffect(() => {
     if (announcements.length > 0) {
       const latest = announcements[0];
-
-      // Skip notification on initial data load
       if (isFirstLoad.current) {
         prevAnnounceId.current = latest.id;
         isFirstLoad.current = false;
         return;
       }
-
       if (prevAnnounceId.current && prevAnnounceId.current !== latest.id) {
         setLatestMsg(latest.message);
         setNotifyOpen(true);
@@ -157,6 +164,7 @@ export const SmDashboard: React.FC = () => {
     }
   }, [announcements]);
 
+  // Listen to Station Data (Existing)
   useEffect(() => {
     if (!stationId) return;
     const unsub = onSnapshot(
@@ -167,6 +175,7 @@ export const SmDashboard: React.FC = () => {
     return () => unsub();
   }, [stationId]);
 
+  // Listen to Queues (Existing)
   useEffect(() => {
     if (!stationId) return;
     const q = query(
@@ -183,16 +192,34 @@ export const SmDashboard: React.FC = () => {
     return () => unsub();
   }, [stationId]);
 
-  // New: when station is in LUNCH_SOON and both queues empty, finalize to CLOSED_LUNCH
+  // --- NEW: Listen to Active Chats ---
+  useEffect(() => {
+    if (!stationId) return;
+    // Find chats for this station that are ACTIVE (Traveling group)
+    const qChats = query(
+      collection(db, "chats"),
+      where("stationId", "==", stationId),
+      where("isActive", "==", true)
+    );
+    const unsubChats = onSnapshot(qChats, (snap) => {
+      const list = snap.docs.map(
+        (d) => ({ id: d.id, ...d.data() } as ChatData)
+      );
+      setActiveChats(list);
+    });
+
+    return () => unsubChats();
+  }, [stationId]);
+
+  // Lunch finalize logic (Existing)
   useEffect(() => {
     if (!stationData) return;
     if (stationData.status !== "LUNCH_SOON") {
-      finalizingRef.current = false; // reset guard when not in LUNCH_SOON
+      finalizingRef.current = false;
       return;
     }
     const hasGroups = onTheWayGroups.length + arrivedGroups.length > 0;
     if (!hasGroups && !finalizingRef.current) {
-      // finalize lunch once
       finalizingRef.current = true;
       (async () => {
         setActionLoading(true);
@@ -202,11 +229,10 @@ export const SmDashboard: React.FC = () => {
             "updateStationStatus"
           );
           await fn({ stationId: stationId!, newStatus: "CLOSED_LUNCH" });
-          // station snapshot will update and SM will see the lunch screen
         } catch (err: any) {
           console.error("Failed to finalize lunch:", err);
           setError(err?.message || "Failed to finalize lunch.");
-          finalizingRef.current = false; // allow retry later
+          finalizingRef.current = false;
         } finally {
           setActionLoading(false);
         }
@@ -225,7 +251,6 @@ export const SmDashboard: React.FC = () => {
       await fn({ stationId, newStatus });
       setConfirmOpen(false);
     } catch (err: any) {
-      // show error in UI rather than alert
       setError(err?.message || "Failed to change station status.");
     } finally {
       setActionLoading(false);
@@ -248,9 +273,7 @@ export const SmDashboard: React.FC = () => {
     }
   };
 
-  // Reopen station when SM clicks "WE ARE BACK" by reusing updateStationStatus
   const handleToggleLunch = async () => {
-    // delegate to handleStatusChange to keep actionLoading / error behavior consistent
     await handleStatusChange("OPEN");
   };
 
@@ -264,9 +287,6 @@ export const SmDashboard: React.FC = () => {
     return (
       <StationSelector onStationSelected={() => window.location.reload()} />
     );
-
-  // New: stationData can be null while the realtime snapshot arrives.
-  // Show a small spinner until we have stationData to avoid "object is possibly null" errors.
   if (!stationData)
     return (
       <Box sx={{ display: "flex", justifyContent: "center", mt: 4 }}>
@@ -274,8 +294,6 @@ export const SmDashboard: React.FC = () => {
       </Box>
     );
 
-  // stationData is now guaranteed non-null below; use a local const to avoid
-  // repeated optional-chaining and TypeScript narrowing issues.
   const status = stationData.status;
 
   if (stationData.status === "CLOSED_LUNCH")
@@ -302,8 +320,6 @@ export const SmDashboard: React.FC = () => {
       </Box>
     );
 
-  // Pagination Logic
-  // Filter out GUEST-only announcements from the LIST view
   const listAnnouncements = announcements.filter(
     (ann) =>
       !ann.targets ||
@@ -328,8 +344,8 @@ export const SmDashboard: React.FC = () => {
           alignItems: "center",
           flexWrap: "wrap",
           gap: 2,
-          bgcolor: "#fef5e7", // Warm cream
-          border: "2px solid #eec45c", // Gold border
+          bgcolor: "#fef5e7",
+          border: "2px solid #eec45c",
         }}
       >
         <Box>
@@ -342,11 +358,7 @@ export const SmDashboard: React.FC = () => {
               size="small"
               startIcon={<ExitToAppIcon />}
               onClick={handleLeaveStation}
-              sx={{
-                color: "#8d6e63",
-                opacity: 0.7,
-                "&:hover": { opacity: 1 },
-              }}
+              sx={{ color: "#8d6e63", opacity: 0.7, "&:hover": { opacity: 1 } }}
             >
               Change
             </Button>
@@ -380,12 +392,7 @@ export const SmDashboard: React.FC = () => {
                 setConfirmAction("LUNCH");
                 setConfirmOpen(true);
               }}
-              sx={{
-                bgcolor: "#ff9800",
-                "&:hover": {
-                  bgcolor: "#f57c00",
-                },
-              }}
+              sx={{ bgcolor: "#ff9800", "&:hover": { bgcolor: "#f57c00" } }}
             >
               Lunch
             </Button>
@@ -401,12 +408,7 @@ export const SmDashboard: React.FC = () => {
               startIcon={<LockOpenIcon />}
               disabled={actionLoading}
               onClick={() => handleStatusChange("OPEN")}
-              sx={{
-                bgcolor: "#4caf50",
-                "&:hover": {
-                  bgcolor: "#45a049",
-                },
-              }}
+              sx={{ bgcolor: "#4caf50", "&:hover": { bgcolor: "#45a049" } }}
             >
               Re-open
             </Button>
@@ -435,12 +437,55 @@ export const SmDashboard: React.FC = () => {
         </Box>
       </Paper>
 
+      {/* --- NEW: ACTIVE CHATS LIST --- */}
+      {activeChats.length > 0 && (
+        <Paper
+          sx={{ p: 2, mb: 3, bgcolor: "#e0f7fa", border: "1px solid #4dd0e1" }}
+        >
+          <Typography
+            variant="h6"
+            gutterBottom
+            sx={{ display: "flex", alignItems: "center", gap: 1 }}
+          >
+            <ChatIcon color="info" /> Active Chats ({activeChats.length})
+          </Typography>
+          <List disablePadding>
+            {activeChats.map((chat) => (
+              <ListItem
+                key={chat.id}
+                disablePadding
+                sx={{ bgcolor: "white", mb: 1, borderRadius: 1 }}
+                secondaryAction={
+                  chat.unreadCountSM > 0 && (
+                    <Chip
+                      label={`${chat.unreadCountSM} new`}
+                      color="error"
+                      size="small"
+                    />
+                  )
+                }
+              >
+                <ListItemButton onClick={() => setSelectedChatId(chat.id)}>
+                  <ListItemText
+                    primary={chat.groupName}
+                    secondary={chat.lastMessage || "No messages yet"}
+                    secondaryTypographyProps={{ noWrap: true }}
+                  />
+                </ListItemButton>
+              </ListItem>
+            ))}
+          </List>
+        </Paper>
+      )}
+      {/* ----------------------------- */}
+
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {error}
         </Alert>
       )}
 
+      {/* QUEUES */}
       <Box
         sx={{
           display: "flex",
@@ -526,12 +571,25 @@ export const SmDashboard: React.FC = () => {
                   </ListItemButton>
                 </ListItem>
               ))
-             ) }
+            )}
           </List>
         </Paper>
       </Box>
 
-      {/* === NEW: SM ANNOUNCEMENTS === */}
+      {/* --- CHAT WINDOW --- */}
+      {selectedChatId && (
+        <ChatWindow
+          chatId={selectedChatId}
+          // FIX: Find the group name from our activeChats list
+          title={`Chat with ${
+            activeChats.find((c) => c.id === selectedChatId)?.groupName ||
+            "Group"
+          }`}
+          onClose={() => setSelectedChatId(null)}
+        />
+      )}
+
+      {/* === SM ANNOUNCEMENTS === */}
       <Box sx={{ mt: 4 }}>
         <Typography
           variant="h6"
@@ -558,7 +616,7 @@ export const SmDashboard: React.FC = () => {
                 {displayedAnnouncements.map((ann, index) => (
                   <React.Fragment key={ann.id}>
                     {index > 0 && <Divider />}
-                    <ListItem sx={{ py: 1, px: 2 }}> {/* Reduced padding */}
+                    <ListItem sx={{ py: 1, px: 2 }}>
                       <ListItemText
                         primary={ann.message}
                         secondary={ann.timestamp
@@ -636,9 +694,7 @@ export const SmDashboard: React.FC = () => {
           <Button
             onClick={() =>
               handleStatusChange(
-                confirmAction === "LUNCH"
-                  ? "LUNCH_SOON"
-                  : "CLOSED_PERMANENTLY"
+                confirmAction === "LUNCH" ? "LUNCH_SOON" : "CLOSED_PERMANENTLY"
               )
             }
             color={confirmAction === "CLOSE" ? "error" : "warning"}
@@ -650,7 +706,6 @@ export const SmDashboard: React.FC = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Only mount SmActionModal when we have required props to avoid TS/runtime errors */}
       {selectedGroup && stationId && (
         <SmActionModal
           open={actionModalOpen}

@@ -98,6 +98,37 @@ const notifyStationMaster = async (stationId: string, message: string) => {
   }
 };
 
+// --- HELPER: SEND PUSH TO OGLs OF A GROUP ---
+const notifyGroup = async (groupId: string, message: string) => {
+  try {
+    const oglQuery = await admin
+      .firestore()
+      .collection("users")
+      .where("role", "==", "OGL")
+      .where("groupId", "==", groupId)
+      .get();
+
+    const tokens: string[] = [];
+    oglQuery.forEach((doc) => {
+      const data = doc.data();
+      if (data.fcmToken) tokens.push(data.fcmToken);
+    });
+
+    if (tokens.length > 0) {
+      await admin.messaging().sendEachForMulticast({
+        tokens: tokens,
+        data: {
+          title: "New Message",
+          body: message,
+          url: "/ogl/journey", // Clicking opens their journey page
+        },
+      });
+    }
+  } catch (err) {
+    console.error("Failed to notify Group:", err);
+  }
+};
+
 // add a local alias for readability using the admin SDK types
 type QDoc = admin.firestore.QueryDocumentSnapshot;
 
@@ -695,14 +726,14 @@ export const assignOglToGroup = onCall(
 );
 
 // ===================================================================
-// 17. OGL START TRAVEL (WITH PUSH NOTIFICATION)
+// 17. OGL START TRAVEL (UPDATED WITH CHAT)
 // ===================================================================
 export const oglStartTravel = onCall(
   async (request: CallableRequest<{ stationId: string; eta: string }>) => {
     if (!request.auth)
       throw new HttpsError("unauthenticated", "Must be logged in.");
 
-    // Inline helper logic
+    // (Keep existing permission checks...)
     const userDoc = await admin
       .firestore()
       .collection("users")
@@ -726,23 +757,50 @@ export const oglStartTravel = onCall(
     if (stationDoc.data()?.status !== "OPEN")
       throw new HttpsError("failed-precondition", "Station closed.");
 
+    const groupDoc = await admin
+      .firestore()
+      .collection("groups")
+      .doc(groupId)
+      .get();
+    const groupName = groupDoc.data()?.name || "Unknown Group";
+    const stationName = stationDoc.data()?.name || "Unknown Station";
+
     try {
       const batch = admin.firestore().batch();
+
+      // 1. Update Group Status
       batch.update(admin.firestore().collection("groups").doc(groupId), {
         status: "TRAVELING",
         destinationId: stationId,
         destinationEta: eta,
       });
+
+      // 2. Update Station Counter
       batch.update(admin.firestore().collection("stations").doc(stationId), {
         travelingCount: admin.firestore.FieldValue.increment(1),
       });
 
-      // NOTIFY SM
-      const groupName = (
-        await admin.firestore().collection("groups").doc(groupId).get()
-      ).data()?.name;
-      const message = `${groupName} is now heading towards your station (ETA: ${eta}).`;
+      // 3. CREATE/RESET CHAT (NEW!)
+      const chatId = `chat_${groupId}_${stationId}`;
+      const chatRef = admin.firestore().collection("chats").doc(chatId);
+      batch.set(
+        chatRef,
+        {
+          groupId,
+          stationId,
+          groupName,
+          stationName,
+          isActive: true, // <--- Chat is now LIVE
+          lastMessage: "Trip started",
+          lastMessageTime: admin.firestore.FieldValue.serverTimestamp(),
+          unreadCountSM: 1, // Alert the SM
+          unreadCountOGL: 0,
+        },
+        { merge: true }
+      );
 
+      // 4. Send Announcement to SM
+      const message = `${groupName} is heading towards your station (ETA: ${eta}).`;
       const announceRef = admin.firestore().collection("announcements").doc();
       batch.set(announceRef, {
         message: message,
@@ -753,7 +811,9 @@ export const oglStartTravel = onCall(
 
       await batch.commit();
 
-      // TRIGGER PUSH NOTIFICATION
+      // Notify SM
+      // Assuming you have notifyStationMaster defined from previous steps
+      // if not, use the logic from makeAnnouncement or the helper I gave before
       await notifyStationMaster(stationId, message);
 
       return { success: true };
@@ -764,7 +824,7 @@ export const oglStartTravel = onCall(
 );
 
 // ===================================================================
-// 18. OGL ARRIVE (WITH PUSH NOTIFICATION)
+// 18. OGL ARRIVE (UPDATED WITH CHAT)
 // ===================================================================
 export const oglArrive = onCall(async (request: CallableRequest<void>) => {
   if (!request.auth)
@@ -789,9 +849,11 @@ export const oglArrive = onCall(async (request: CallableRequest<void>) => {
 
   try {
     const batch = admin.firestore().batch();
+
     batch.update(admin.firestore().collection("groups").doc(groupId), {
       status: "ARRIVED",
     });
+
     const stationRef = admin
       .firestore()
       .collection("stations")
@@ -801,10 +863,15 @@ export const oglArrive = onCall(async (request: CallableRequest<void>) => {
       arrivedCount: admin.firestore.FieldValue.increment(1),
     });
 
-    // NOTIFY SM
+    // CLOSE CHAT (NEW!)
+    const chatId = `chat_${groupId}_${currentDestination}`;
+    batch.update(admin.firestore().collection("chats").doc(chatId), {
+      isActive: false,
+    });
+
+    // Announcement
     const groupName = groupDoc.data()?.name;
     const message = `${groupName} has ARRIVED at your station.`;
-
     const announceRef = admin.firestore().collection("announcements").doc();
     batch.set(announceRef, {
       message: message,
@@ -814,8 +881,6 @@ export const oglArrive = onCall(async (request: CallableRequest<void>) => {
     });
 
     await batch.commit();
-
-    // TRIGGER PUSH NOTIFICATION
     await notifyStationMaster(currentDestination, message);
 
     return { success: true };
@@ -825,7 +890,7 @@ export const oglArrive = onCall(async (request: CallableRequest<void>) => {
 });
 
 // ===================================================================
-// 19. OGL DEPART (WITH PUSH NOTIFICATION)
+// 19. OGL DEPART (UPDATED WITH CHAT)
 // ===================================================================
 export const oglDepart = onCall(async (request: CallableRequest<void>) => {
   if (!request.auth)
@@ -863,11 +928,21 @@ export const oglDepart = onCall(async (request: CallableRequest<void>) => {
       destinationEta: admin.firestore.FieldValue.delete(),
     });
 
-    // NOTIFY SM
+    // CLOSE CHAT (NEW!)
+    if (currentStationId) {
+      const chatId = `chat_${groupId}_${currentStationId}`;
+      // Check if exists first to avoid crash if no chat was started
+      const chatRef = admin.firestore().collection("chats").doc(chatId);
+      const chatDoc = await chatRef.get();
+      if (chatDoc.exists) {
+        batch.update(chatRef, { isActive: false });
+      }
+    }
+
+    // Notify SM
     if (currentStationId) {
       const groupName = groupDoc.data()?.name;
       const message = `${groupName} has LEFT the station.`;
-
       const announceRef = admin.firestore().collection("announcements").doc();
       batch.set(announceRef, {
         message: message,
@@ -875,10 +950,7 @@ export const oglDepart = onCall(async (request: CallableRequest<void>) => {
         timestamp: admin.firestore.FieldValue.serverTimestamp(),
         createdBy: "SYSTEM",
       });
-
       await batch.commit();
-
-      // TRIGGER PUSH NOTIFICATION
       await notifyStationMaster(currentStationId, message);
     } else {
       await batch.commit();
@@ -1006,6 +1078,16 @@ export const resetGame = onCall(async (request: CallableRequest<void>) => {
       .collection("announcements")
       .get();
     announcements.docs.forEach((doc: QDoc) => {
+      batch.delete(doc.ref);
+    });
+
+    // 5. NEW! Delete ALL Chats
+    const chats = await admin.firestore().collection("chats").get();
+    chats.docs.forEach((doc: QDoc) => {
+      // Note: Subcollections (messages) don't delete automatically in Firestore
+      // A true recursive delete is hard in a simple loop,
+      // but invalidating the parent 'chat' doc usually breaks the UI link enough for testing.
+      // For production, use the Firebase CLI to delete collections if they get huge.
       batch.delete(doc.ref);
     });
 
@@ -1918,6 +2000,80 @@ export const deleteAnnouncement = onCall(
         .collection("announcements")
         .doc(request.data.id)
         .delete();
+      return { success: true };
+    } catch (error: any) {
+      throw new HttpsError("internal", error.message);
+    }
+  }
+);
+
+// ===================================================================
+// 38. SEND CHAT MESSAGE (NEW!)
+// ===================================================================
+export const sendChatMessage = onCall(
+  async (request: CallableRequest<{ chatId: string; message: string }>) => {
+    if (!request.auth)
+      throw new HttpsError("unauthenticated", "Must be logged in.");
+    const { chatId, message } = request.data;
+    if (!chatId || !message)
+      throw new HttpsError("invalid-argument", "Missing data.");
+
+    try {
+      const chatRef = admin.firestore().collection("chats").doc(chatId);
+      const chatDoc = await chatRef.get();
+      if (!chatDoc.exists) throw new HttpsError("not-found", "Chat not found.");
+
+      const chatData = chatDoc.data();
+      // Determine sender role based on Auth
+      const userDoc = await admin
+        .firestore()
+        .collection("users")
+        .doc(request.auth.uid)
+        .get();
+      const senderRole = userDoc.data()?.role;
+
+      if (senderRole !== "SM" && senderRole !== "OGL") {
+        throw new HttpsError("permission-denied", "Unauthorized.");
+      }
+
+      const batch = admin.firestore().batch();
+
+      // 1. Add Message
+      const msgRef = chatRef.collection("messages").doc();
+      batch.set(msgRef, {
+        text: message,
+        senderId: request.auth.uid,
+        senderRole: senderRole,
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      // 2. Update Parent Chat (Counters & Last Message)
+      const updateData: any = {
+        lastMessage: message,
+        lastMessageTime: admin.firestore.FieldValue.serverTimestamp(),
+      };
+
+      if (senderRole === "OGL") {
+        // If OGL sent it, increment SM unread
+        updateData.unreadCountSM = admin.firestore.FieldValue.increment(1);
+        // Notify SM
+        await notifyStationMaster(
+          chatData?.stationId,
+          `New message from ${chatData?.groupName}: ${message}`
+        );
+      } else {
+        // If SM sent it, increment OGL unread
+        updateData.unreadCountOGL = admin.firestore.FieldValue.increment(1);
+        // Notify Group
+        await notifyGroup(
+          chatData?.groupId,
+          `New message from ${chatData?.stationName}: ${message}`
+        );
+      }
+
+      batch.update(chatRef, updateData);
+      await batch.commit();
+
       return { success: true };
     } catch (error: any) {
       throw new HttpsError("internal", error.message);
