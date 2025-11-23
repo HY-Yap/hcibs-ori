@@ -2,16 +2,15 @@ import React, { createContext, useContext, useState, useEffect } from "react";
 import type { ReactNode } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import type { User } from "firebase/auth";
-import { doc, onSnapshot } from "firebase/firestore";
+import { doc, onSnapshot, type Unsubscribe } from "firebase/firestore";
 import { auth, db } from "../firebase";
 
-// 1. UPDATE THE PROFILE TYPE TO BE COMPLETE
 interface UserProfile {
   role: "ADMIN" | "SM" | "OGL" | null;
   displayName: string;
   groupId?: string;
-  username?: string; // <-- This was missing
-  selectedStationId?: string; // <-- This was missing
+  username?: string;
+  selectedStationId?: string;
 }
 
 interface AuthContextType {
@@ -35,14 +34,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
 
   // 1. Listen to Authentication & User Profile
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    let profileUnsub: Unsubscribe | null = null;
+
+    const authUnsub = onAuthStateChanged(auth, (user) => {
       if (user) {
         setCurrentUser(user);
-        return onSnapshot(
+        // Listen to the user profile
+        profileUnsub = onSnapshot(
           doc(db, "users", user.uid),
           (docSnap) => {
             if (docSnap.exists()) {
-              // 2. EXPLICITLY PULL DATA (Safer than 'as UserProfile')
               const data = docSnap.data();
               setProfile({
                 role: data.role || null,
@@ -52,29 +53,41 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
                 selectedStationId: data.selectedStationId,
               });
             } else {
-              // User is authenticated but has no profile in DB
               setProfile(null);
             }
             setLoading(false);
           },
           (error) => {
-            // Handle snapshot errors
             console.error("AuthContext user snapshot error:", error);
-            setProfile(null);
             setLoading(false);
           }
         );
       } else {
         setCurrentUser(null);
         setProfile(null);
+        if (profileUnsub) {
+          profileUnsub(); // Stop listening to old profile
+          profileUnsub = null;
+        }
         setLoading(false);
       }
     });
-    return () => unsubscribe();
+
+    return () => {
+      authUnsub();
+      if (profileUnsub) profileUnsub();
+    };
   }, []);
 
-  // 2. Listen to global Game Status
+  // 2. Listen to global Game Status (THE FIX IS HERE)
   useEffect(() => {
+    // If no user is logged in, we can't read the config (due to security rules).
+    // So we just wait.
+    if (!currentUser) {
+      setGameStatus(null);
+      return;
+    }
+
     const unsub = onSnapshot(
       doc(db, "game", "config"),
       (docSnap) => {
@@ -84,11 +97,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
           setGameStatus("STOPPED");
         }
       },
-      (err) => console.error("Game status listener failed:", err)
+      (err) => {
+        // Don't crash, just log.
+        // If permission denied happens briefly during login/logout, it's fine.
+        console.log("Game status listener paused:", err.code);
+      }
     );
 
     return () => unsub();
-  }, []);
+  }, [currentUser]); // <-- DEPENDENCY ADDED: Re-run this when user logs in!
 
   const value = { currentUser, profile, loading, gameStatus };
 
