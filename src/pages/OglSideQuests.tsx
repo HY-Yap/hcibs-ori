@@ -387,7 +387,6 @@ export const OglSideQuests: FC = () => {
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "space-between",
-                    bgcolor: "success.light",
                     borderColor: "success.main",
                     mt: 1,
                   }}

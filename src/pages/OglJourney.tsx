@@ -20,7 +20,6 @@ import {
   DialogActions,
   TextField,
   Divider,
-  IconButton,
   Badge,
 } from "@mui/material";
 import { useAuth } from "../context/AuthContext";
@@ -34,7 +33,8 @@ import {
 import { httpsCallable } from "firebase/functions";
 import { db, functions as firebaseFunctions } from "../firebase";
 import { FileUpload } from "../components/FileUpload";
-import { ChatWindow } from "../components/ChatWindow"; // <-- Chat Component
+import { ChatWindow } from "../components/ChatWindow";
+import { getStorage, ref as storageRef, deleteObject } from "firebase/storage"; // ADD THIS
 
 // Icons
 import LocationOnIcon from "@mui/icons-material/LocationOn";
@@ -42,9 +42,7 @@ import DirectionsRunIcon from "@mui/icons-material/DirectionsRun";
 import RestaurantIcon from "@mui/icons-material/Restaurant";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import LockIcon from "@mui/icons-material/Lock";
-import ClearIcon from "@mui/icons-material/Clear";
-import AttachFileIcon from "@mui/icons-material/AttachFile";
-import ChatIcon from "@mui/icons-material/Chat"; // <-- Chat Icon
+import ChatIcon from "@mui/icons-material/Chat";
 
 interface StationData {
   id: string;
@@ -79,10 +77,92 @@ export const OglJourney: FC = () => {
   // Submission State
   const [submissionUrl, setSubmissionUrl] = useState<string | null>(null);
   const [textAnswer, setTextAnswer] = useState("");
+  const [groupName, setGroupName] = useState<string | null>(null); // ADD THIS
 
-  // --- CHAT STATE (Restored) ---
+  // Chat State
   const [chatOpen, setChatOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+
+  // Helper to create safe slug from a name
+  const slugify = (s?: string | null) =>
+    (s || "")
+      .toLowerCase()
+      .trim()
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9-_]/g, "");
+
+  const getUploadPath = (station?: StationData) => {
+    const gid = profile?.groupId || "unknown-group";
+    const gslug = slugify(groupName) || gid;
+    const sid = station?.id || "unknown-station";
+    const sslug = slugify(station?.name) || sid;
+    return `submissions/${gslug}/${sslug}/`;
+  };
+
+  // Helper: extract a storage path from various download URL formats
+  const extractStoragePathFromUrl = (url: string) => {
+    try {
+      const u = new URL(url);
+      let m = u.pathname.match(/\/o\/([^?]+)/);
+      if (m && m[1]) return decodeURIComponent(m[1]);
+      m = u.pathname.match(/\/b\/[^/]+\/o\/([^?]+)/);
+      if (m && m[1]) return decodeURIComponent(m[1]);
+      const parts = u.pathname.split("/");
+      if (parts.length >= 3) {
+        const maybe = parts.slice(2).join("/").split("?")[0];
+        return decodeURIComponent(maybe);
+      }
+    } catch (e) {
+      /* ignore */
+    }
+    return null;
+  };
+
+  // Remove uploaded file
+  const handleRemoveFile = async () => {
+    if (!submissionUrl) return;
+    if (
+      !window.confirm(
+        "Remove uploaded file? This will delete the file from storage."
+      )
+    )
+      return;
+    setActionLoading(true);
+    try {
+      const path = extractStoragePathFromUrl(submissionUrl);
+      if (path) {
+        try {
+          const storage = getStorage();
+          await deleteObject(storageRef(storage, path));
+          console.log("Client-side storage delete succeeded:", path);
+          setSubmissionUrl(null);
+          return;
+        } catch (err) {
+          console.warn("Client-side delete failed, will try server-side:", err);
+        }
+      } else {
+        console.warn(
+          "Could not parse storage path from URL, will try server-side."
+        );
+      }
+
+      // fallback to server-side deletion
+      const fn = httpsCallable(firebaseFunctions, "deleteSubmission");
+      await fn({ groupId: profile?.groupId, submissionUrl });
+      console.log(
+        "Server-side deleteSubmission succeeded for URL:",
+        submissionUrl
+      );
+      setSubmissionUrl(null);
+    } catch (err: any) {
+      console.error("Failed to remove file:", err);
+      alert(
+        `Failed to remove file: ${err?.message || String(err)}. Check console.`
+      );
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   // Reset submission when arriving
   useEffect(() => {
@@ -96,7 +176,10 @@ export const OglJourney: FC = () => {
   useEffect(() => {
     if (!profile?.groupId) return;
     const unsub = onSnapshot(doc(db, "groups", profile.groupId), (docSnap) => {
-      if (docSnap.exists()) setGroupData(docSnap.data() as GroupData);
+      if (docSnap.exists()) {
+        setGroupData(docSnap.data() as GroupData);
+        setGroupName(docSnap.data().name || null); // STORE GROUP NAME
+      }
       setLoading(false);
     });
     return () => unsub();
@@ -113,7 +196,7 @@ export const OglJourney: FC = () => {
     return () => unsub();
   }, []);
 
-  // --- LISTEN TO CHAT UNREAD COUNT (Restored) ---
+  // Listen to Chat Unread Count
   useEffect(() => {
     if (
       groupData?.status !== "TRAVELING" ||
@@ -177,7 +260,6 @@ export const OglJourney: FC = () => {
       await submitScoreFn({
         groupId: profile.groupId,
         stationId: station.id,
-        stationPoints: station.points || 50,
         type: "STATION",
         submissionUrl: submissionUrl || null,
         textAnswer: textAnswer || null,
@@ -218,6 +300,8 @@ export const OglJourney: FC = () => {
   // --- VIEW 1: TRAVELING ---
   if (groupData.status === "TRAVELING") {
     const dest = stations.find((s) => s.id === groupData.destinationId);
+    const isDestinationManned = dest?.type === "manned";
+
     return (
       <Box sx={{ textAlign: "center", mt: 4, p: 2 }}>
         <DirectionsRunIcon
@@ -230,39 +314,42 @@ export const OglJourney: FC = () => {
           Destination: <strong>{dest?.name || "Unknown"}</strong>
         </Typography>
 
-        {/* --- CHAT BUTTON (Restored) --- */}
-        <Box sx={{ mt: 2, mb: 2 }}>
-          <Button
-            variant="outlined"
-            color="info"
-            size="large"
-            startIcon={
-              <Badge badgeContent={unreadCount} color="error">
-                <ChatIcon />
-              </Badge>
-            }
-            onClick={() => setChatOpen(true)}
-            fullWidth
-          >
-            Chat with Station Master
-          </Button>
-        </Box>
-        {/* ----------------------------- */}
+        {isDestinationManned && (
+          <Box sx={{ mt: 2, mb: 2 }}>
+            <Button
+              variant="outlined"
+              color="info"
+              size="large"
+              startIcon={
+                <Badge badgeContent={unreadCount} color="error">
+                  <ChatIcon />
+                </Badge>
+              }
+              onClick={() => setChatOpen(true)}
+              fullWidth
+            >
+              Chat with Station Master
+            </Button>
+          </Box>
+        )}
 
         <Button
           variant="contained"
           color="success"
           size="large"
           fullWidth
-          sx={{ py: 2, fontSize: "1.2rem" }}
+          sx={{
+            py: 2,
+            fontSize: "1.2rem",
+            mt: isDestinationManned ? 0 : 4,
+          }}
           disabled={actionLoading}
           onClick={handleArrive}
         >
           I HAVE ARRIVED
         </Button>
 
-        {/* --- CHAT WINDOW (Restored) --- */}
-        {chatOpen && groupData.destinationId && (
+        {chatOpen && isDestinationManned && groupData.destinationId && (
           <ChatWindow
             chatId={`chat_${profile?.groupId}_${groupData.destinationId}`}
             title={`Chat with ${dest?.name || "SM"}`}
@@ -317,7 +404,7 @@ export const OglJourney: FC = () => {
                 color="primary.main"
                 sx={{ fontWeight: "bold" }}
               >
-                REWARD: {currentStation?.points || 50} POINTS
+                REWARD: {currentStation?.points || 0} POINTS
               </Typography>
             </Box>
             <Typography
@@ -337,31 +424,65 @@ export const OglJourney: FC = () => {
                 value={textAnswer}
                 onChange={(e) => setTextAnswer(e.target.value)}
               />
-              {submissionUrl ? (
-                <Alert
-                  severity="success"
-                  icon={<AttachFileIcon />}
-                  action={
-                    <IconButton
+
+              {/* UPDATED FILE UPLOAD SECTION - Match OglSideQuests */}
+              <Box>
+                <Typography variant="subtitle2" gutterBottom>
+                  Upload Proof:
+                </Typography>
+                {submissionUrl ? (
+                  <Paper
+                    variant="outlined"
+                    sx={{
+                      p: 1,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      borderColor: "success.main",
+                      mt: 1,
+                    }}
+                  >
+                    <Box>
+                      <Typography
+                        variant="body2"
+                        fontWeight={600}
+                        color="success.dark"
+                      >
+                        File uploaded
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        <a
+                          href={submissionUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ color: "inherit" }}
+                        >
+                          View submission
+                        </a>
+                      </Typography>
+                    </Box>
+                    <Button
                       size="small"
-                      onClick={() => setSubmissionUrl(null)}
+                      color="error"
+                      variant="outlined"
+                      onClick={handleRemoveFile}
+                      disabled={actionLoading}
                     >
-                      <ClearIcon />
-                    </IconButton>
-                  }
-                >
-                  File uploaded successfully!
-                </Alert>
-              ) : (
-                <FileUpload
-                  uploadPath={`submissions/${profile?.groupId}/${currentStation?.id}/`}
-                  onUploadComplete={(url) => setSubmissionUrl(url)}
-                />
-              )}
+                      Remove
+                    </Button>
+                  </Paper>
+                ) : (
+                  <FileUpload
+                    uploadPath={getUploadPath(currentStation || undefined)}
+                    onUploadComplete={(url) => setSubmissionUrl(url)}
+                  />
+                )}
+              </Box>
+
               <Button
                 variant="contained"
                 color="success"
-                disabled={actionLoading || (!textAnswer && !submissionUrl)}
+                disabled={actionLoading || !submissionUrl}
                 onClick={() => handleSubmitUnmanned(currentStation!)}
                 sx={{ mt: 1, py: 1.5 }}
               >

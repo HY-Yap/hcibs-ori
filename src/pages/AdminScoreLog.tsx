@@ -30,8 +30,9 @@ interface LogData {
   timestamp: any;
   groupId: string;
   points: number;
-  type: "STATION" | "SIDE_QUEST";
+  type: "STATION" | "SIDE_QUEST" | "OVERRIDE";
   sourceId: string;
+  stationId?: string;
   note?: string;
   awardedBy?: string;
   awardedByRole?: string;
@@ -132,10 +133,27 @@ export const AdminScoreLog: FC = () => {
 
   const filteredLogs = useMemo(() => {
     return logs.filter((log) => {
+      // Group filter
       if (filterGroup !== "ALL" && log.groupId !== filterGroup) return false;
+
+      // Type filter
       if (filterType !== "ALL" && log.type !== filterType) return false;
-      if (filterSource !== "ALL" && log.sourceId !== filterSource) return false;
+
+      // Source filter - FIXED
+      if (filterSource !== "ALL") {
+        if (filterSource === "ADMIN") {
+          // Check for admin overrides specifically
+          if (log.sourceId !== "ADMIN") return false;
+        } else {
+          // For stations/side quests
+          const actualSourceId = log.sourceId || log.stationId;
+          if (actualSourceId !== filterSource) return false;
+        }
+      }
+
+      // Note filter
       if (filterHasNote && !log.note) return false;
+
       return true;
     });
   }, [logs, filterGroup, filterType, filterSource, filterHasNote]);
@@ -215,6 +233,7 @@ export const AdminScoreLog: FC = () => {
                 <MenuItem value="ALL">All Types</MenuItem>
                 <MenuItem value="STATION">Stations</MenuItem>
                 <MenuItem value="SIDE_QUEST">Side Quests</MenuItem>
+                <MenuItem value="OVERRIDE">Override</MenuItem> {/* CHANGED */}
               </Select>
             </FormControl>
           </Box>
@@ -239,6 +258,8 @@ export const AdminScoreLog: FC = () => {
                       {name}
                     </MenuItem>
                   ))}
+                {/* FIXED: Change value from "adminoverride" to "ADMIN" */}
+                <MenuItem value="ADMIN">Admin</MenuItem>
               </Select>
             </FormControl>
           </Box>
@@ -332,9 +353,21 @@ export const AdminScoreLog: FC = () => {
 
                     <TableCell>
                       <Chip
-                        label={log.type === "STATION" ? "Stn" : "Quest"}
+                        label={
+                          log.type === "STATION"
+                            ? "Stn"
+                            : log.type === "SIDE_QUEST"
+                            ? "Quest"
+                            : "Override" // CHANGED
+                        }
                         size="small"
-                        color={log.type === "STATION" ? "primary" : "secondary"}
+                        color={
+                          log.type === "STATION"
+                            ? "primary"
+                            : log.type === "SIDE_QUEST"
+                            ? "secondary"
+                            : "warning"
+                        }
                         variant="outlined"
                         sx={{ height: 20, fontSize: "0.65rem" }}
                       />

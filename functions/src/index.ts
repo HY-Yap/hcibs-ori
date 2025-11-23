@@ -279,6 +279,7 @@ export const createStation = onCall(
       const ref = admin.firestore().collection("stations").doc();
       await ref.set({
         ...request.data,
+        points: request.data.points || 0,
         status: "OPEN",
         travelingCount: 0,
         arrivedCount: 0,
@@ -417,7 +418,13 @@ export const updateStation = onCall(
         .firestore()
         .collection("stations")
         .doc(id)
-        .update({ name, type, description, location });
+        .update({
+          name,
+          type,
+          description,
+          location,
+          points: request.data.points || 0,
+        });
       return { success: true };
     } catch (error: any) {
       throw new HttpsError("internal", error.message);
@@ -497,7 +504,7 @@ export const updateStationStatus = onCall(
 );
 
 // ===================================================================
-// 12. SUBMIT SCORE (FIXED 'exists' syntax)
+// 12. SUBMIT SCORE (UPDATED: Handle Manned vs Unmanned Stations)
 // ===================================================================
 export const submitScore = onCall(
   async (request: CallableRequest<ScoreData>) => {
@@ -516,14 +523,12 @@ export const submitScore = onCall(
 
     const {
       groupId,
-      points,
+      points, // Custom points (for manned stations by SM/ADMIN)
       type,
       id,
       adminNote,
       stationId,
-      stationPoints,
       sideQuestId,
-      sideQuestPoints,
       submissionUrl,
       textAnswer,
     } = request.data;
@@ -542,10 +547,7 @@ export const submitScore = onCall(
           .collection("stations")
           .doc(sId!)
           .get();
-        // --- THIS IS THE FIX ---
-        // It's '.exists' (a property), NOT '.exists()' (a function)
         if (!stationDoc.exists || stationDoc.data()?.type !== "unmanned") {
-          // -----------------------
           throw new HttpsError(
             "permission-denied",
             "OGLs can only self-score UNMANNED stations."
@@ -560,14 +562,53 @@ export const submitScore = onCall(
       let totalPointsToAdd = 0;
       const updateData: any = {};
 
-      // Normalize inputs
-      const sPoints = stationPoints ?? (type === "STATION" ? points : 0);
-      const sqPoints = sideQuestPoints ?? (type === "SIDE_QUEST" ? points : 0);
+      // Normalize IDs
       const sId = stationId ?? (type === "STATION" ? id : null);
       const sqId = sideQuestId ?? (type === "SIDE_QUEST" ? id : null);
 
+      // --- HANDLE POINTS LOGIC: MANNED vs UNMANNED ---
+      let sPoints = 0;
+      let sqPoints = 0;
+
+      if (sId) {
+        const stationDoc = await admin
+          .firestore()
+          .collection("stations")
+          .doc(sId)
+          .get();
+        const stationData = stationDoc.data();
+        const isManned = stationData?.type === "manned";
+        
+        if (isManned && (callerRole === "SM" || callerRole === "ADMIN")) {
+          // For manned stations: SM/ADMIN can set custom points
+          sPoints = points || 0;
+        } else {
+          // For unmanned stations: Always use database points
+          sPoints = stationData?.points || 50;
+        }
+      }
+
+      if (sqId) {
+        const sqDoc = await admin
+          .firestore()
+          .collection("sideQuests")
+          .doc(sqId)
+          .get();
+        const sqData = sqDoc.data();
+        const isSmManaged = sqData?.isSmManaged;
+        
+        if (isSmManaged && (callerRole === "SM" || callerRole === "ADMIN")) {
+          // For SM-managed side quests: SM/ADMIN can set custom points
+          sqPoints = points || 0;
+        } else {
+          // For regular side quests: Always use database points
+          sqPoints = sqData?.points || 0;
+        }
+      }
+      // ------------------------------------------------------------
+
       // 1. HANDLE STATION
-      if (sPoints !== undefined && sPoints !== null && sPoints > 0 && sId) {
+      if (sPoints > 0 && sId) {
         totalPointsToAdd += sPoints;
         updateData.completedStations =
           admin.firestore.FieldValue.arrayUnion(sId);
@@ -585,7 +626,8 @@ export const submitScore = onCall(
           timestamp: admin.firestore.FieldValue.serverTimestamp(),
           groupId,
           stationId: sId,
-          points: sPoints,
+          sourceId: sId,
+          points: sPoints, // Use calculated points (custom for manned, fixed for unmanned)
           type: "STATION",
           awardedBy: request.auth.uid,
           awardedByRole: callerRole,
@@ -596,7 +638,7 @@ export const submitScore = onCall(
       }
 
       // 2. HANDLE SIDE QUEST
-      if (sqPoints !== undefined && sqPoints !== null && sqPoints > 0 && sqId) {
+      if (sqPoints > 0 && sqId) {
         totalPointsToAdd += sqPoints;
         updateData.completedSideQuests =
           admin.firestore.FieldValue.arrayUnion(sqId);
@@ -605,7 +647,7 @@ export const submitScore = onCall(
           timestamp: admin.firestore.FieldValue.serverTimestamp(),
           groupId,
           sourceId: sqId,
-          points: sqPoints,
+          points: sqPoints, // Use calculated points (custom for SM-managed, fixed for others)
           type: "SIDE_QUEST",
           awardedBy: request.auth.uid,
           awardedByRole: callerRole,
@@ -1338,14 +1380,14 @@ export const adminUpdateScore = onCall(
         lastScoreTimestamp: admin.firestore.FieldValue.serverTimestamp(), // Keep leaderboard fair
       });
 
-      // 2. Log the correction for audit
+      // 2. Log with type "ADMIN" (CHANGED)
       const logRef = admin.firestore().collection("scoreLog").doc();
       batch.set(logRef, {
         timestamp: admin.firestore.FieldValue.serverTimestamp(),
         groupId,
         points,
-        type: "ADMIN_CORRECTION",
-        sourceId: "AdminOverride",
+        type: "OVERRIDE",
+        sourceId: "ADMIN",
         awardedBy: request.auth.uid,
         awardedByRole: "ADMIN",
         note: reason,
@@ -2104,6 +2146,76 @@ export const sendChatMessage = onCall(
       return { success: true };
     } catch (error: any) {
       throw new HttpsError("internal", error.message);
+    }
+  }
+);
+
+// ===================================================================
+// 39. PUBLIC GAME INFO (For Guests)
+// ===================================================================
+// Cache for 60 seconds to save money and speed up loading
+let gameInfoCache: { data: any; timestamp: number } | null = null;
+const INFO_CACHE_TTL = 60000; 
+
+export const getPublicGameInfo = onRequest(
+  { cors: true, region: "asia-southeast1" },
+  async (req, res) => {
+    res.set("Access-Control-Allow-Origin", "*");
+    if (req.method === "OPTIONS") {
+      res.status(204).send("");
+      return;
+    }
+
+    try {
+      const now = Date.now();
+      if (gameInfoCache && now - gameInfoCache.timestamp < INFO_CACHE_TTL) {
+        res.json(gameInfoCache.data);
+        return;
+      }
+
+      // Fetch Stations and Side Quests in parallel
+      const [stationsSnap, questsSnap] = await Promise.all([
+        admin.firestore().collection("stations").get(),
+        admin.firestore().collection("sideQuests").get()
+      ]);
+
+      // Process Stations (Hide secret descriptions!)
+      const stations = stationsSnap.docs.map(d => {
+        const data = d.data();
+        return {
+          id: d.id,
+          name: data.name,
+          type: data.type,
+          points: data.points || 50, // Default if missing
+          location: data.location,
+          // CRITICAL: Hide description if manned
+          description: data.type === 'manned' 
+            ? "Game will be conducted by the Station Master." 
+            : data.description
+        };
+      }).sort((a, b) => a.name.localeCompare(b.name));
+
+      // Process Side Quests
+      const sideQuests = questsSnap.docs.map(d => {
+        const data = d.data();
+        return {
+          id: d.id,
+          name: data.name,
+          points: data.points || 50,
+          description: data.description,
+          isSmManaged: data.isSmManaged,
+          submissionType: data.submissionType
+        };
+      }).sort((a, b) => a.name.localeCompare(b.name));
+
+      const responseData = { stations, sideQuests };
+      gameInfoCache = { data: responseData, timestamp: now };
+      
+      res.json(responseData);
+
+    } catch (error: any) {
+      console.error("Error fetching game info:", error);
+      res.status(500).json({ error: "Failed to load game info" });
     }
   }
 );

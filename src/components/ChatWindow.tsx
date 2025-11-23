@@ -10,6 +10,8 @@ import {
 } from "@mui/material";
 import SendIcon from "@mui/icons-material/Send";
 import CloseIcon from "@mui/icons-material/Close";
+import DoneAllIcon from "@mui/icons-material/DoneAll"; // Icon for "Seen"
+import CheckIcon from "@mui/icons-material/Check"; // Icon for "Delivered"
 import {
   collection,
   query,
@@ -17,9 +19,10 @@ import {
   onSnapshot,
   doc,
   updateDoc,
+  serverTimestamp,
 } from "firebase/firestore";
-import { getFunctions, httpsCallable } from "firebase/functions";
-import { db } from "../firebase";
+import { httpsCallable } from "firebase/functions";
+import { db, functions } from "../firebase"; // Ensure 'functions' is imported here if needed for consistency
 import { useAuth } from "../context/AuthContext";
 
 interface Message {
@@ -32,7 +35,7 @@ interface Message {
 
 interface Props {
   chatId: string;
-  title: string; // e.g. "Chat with SM" or "Chat with Group 1"
+  title: string;
   onClose: () => void;
 }
 
@@ -41,42 +44,68 @@ export const ChatWindow: FC<Props> = ({ chatId, title, onClose }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const [sending, setSending] = useState(false);
+
+  // --- NEW: Track other person's last seen time ---
+  const [otherLastSeen, setOtherLastSeen] = useState<Date | null>(null);
+
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // 1. Listen to Messages in real-time
+  // 1. Listen to Messages AND Parent Chat Document
   useEffect(() => {
-    const q = query(
+    // A. Messages Listener
+    const qMsgs = query(
       collection(db, "chats", chatId, "messages"),
       orderBy("timestamp", "asc")
     );
-    const unsub = onSnapshot(q, (snap) => {
+    const unsubMsgs = onSnapshot(qMsgs, (snap) => {
       const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Message));
       setMessages(list);
-      // Auto-scroll to bottom on new message
       setTimeout(
         () => bottomRef.current?.scrollIntoView({ behavior: "smooth" }),
         100
       );
     });
 
-    // Mark messages as read when window is open
-    if (profile?.role) {
-      const myUnreadField =
-        profile.role === "OGL" ? "unreadCountOGL" : "unreadCountSM";
-      updateDoc(doc(db, "chats", chatId), { [myUnreadField]: 0 }).catch(
-        console.error
-      );
-    }
+    // B. Parent Chat Listener (To see when THEY last looked)
+    const unsubChat = onSnapshot(doc(db, "chats", chatId), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        // If I am OGL, I want to know when SM last saw it (lastSeenSM)
+        // If I am SM, I want to know when OGL last saw it (lastSeenOGL)
+        const theirKey = profile?.role === "OGL" ? "lastSeenSM" : "lastSeenOGL";
+        if (data[theirKey]) {
+          setOtherLastSeen(data[theirKey].toDate());
+        }
+      }
+    });
 
-    return () => unsub();
+    return () => {
+      unsubMsgs();
+      unsubChat();
+    };
   }, [chatId, profile?.role]);
 
-  // 2. Send Message Function
+  // 2. Update MY "Last Seen" (Runs whenever messages change)
+  useEffect(() => {
+    if (!profile?.role) return;
+
+    const myUnreadField =
+      profile.role === "OGL" ? "unreadCountOGL" : "unreadCountSM";
+    const myLastSeenField =
+      profile.role === "OGL" ? "lastSeenOGL" : "lastSeenSM";
+
+    // We mark as read + update timestamp whenever we see new messages
+    // 'merge: true' is important to not overwrite other fields
+    updateDoc(doc(db, "chats", chatId), {
+      [myUnreadField]: 0,
+      [myLastSeenField]: serverTimestamp(),
+    }).catch((err) => console.error("Failed to mark read:", err));
+  }, [messages.length, chatId, profile?.role]); // Run when message count changes
+
   const handleSend = async () => {
     if (!newMessage.trim()) return;
     setSending(true);
     try {
-      const functions = getFunctions(undefined, "asia-southeast1");
       const sendFn = httpsCallable(functions, "sendChatMessage");
       await sendFn({ chatId, message: newMessage });
       setNewMessage("");
@@ -92,23 +121,18 @@ export const ChatWindow: FC<Props> = ({ chatId, title, onClose }) => {
     <Paper
       elevation={10}
       sx={{
-        // --- RESPONSIVE STYLES ---
         position: "fixed",
         zIndex: 1300,
         overflow: "hidden",
         display: "flex",
         flexDirection: "column",
-
-        // Mobile Styles (Full Screen)
         width: { xs: "100%", md: 400 },
         height: { xs: "100%", md: 500 },
-        top: { xs: 0, md: "auto" }, // Top 0 on mobile covers screen
+        top: { xs: 0, md: "auto" },
         bottom: { xs: 0, md: 20 },
         right: { xs: 0, md: 20 },
-        left: { xs: 0, md: "auto" }, // Left 0 on mobile covers screen
-
-        // Border Radius changes
-        borderRadius: { xs: 0, md: "12px 12px 0 0" }, // Square on mobile, rounded top on desktop
+        left: { xs: 0, md: "auto" },
+        borderRadius: { xs: 0, md: "12px 12px 0 0" },
       }}
     >
       {/* Header */}
@@ -150,18 +174,48 @@ export const ChatWindow: FC<Props> = ({ chatId, title, onClose }) => {
             align="center"
             sx={{ mt: 4 }}
           >
-            No messages yet. Say hi!
+            No messages yet.
           </Typography>
         )}
 
         {messages.map((msg) => {
           const isMe = msg.senderId === currentUser?.uid;
+
+          // --- NEW: Calculate Seen Status ---
+          // Only show status for the VERY LAST message sent by ME
+          let showStatus = false;
+          let isSeen = false;
+
+          // Check if this is the last message *I* sent
+          // (We loop backwards from the end to find the last one sent by me)
+          const myMessages = messages.filter(
+            (m) => m.senderId === currentUser?.uid
+          );
+          const isMyLastMessage =
+            myMessages.length > 0 &&
+            myMessages[myMessages.length - 1].id === msg.id;
+
+          if (isMe && isMyLastMessage) {
+            showStatus = true;
+            if (
+              otherLastSeen &&
+              msg.timestamp &&
+              otherLastSeen > msg.timestamp.toDate()
+            ) {
+              isSeen = true;
+            }
+          }
+          // ----------------------------------
+
           return (
             <Box
               key={msg.id}
               sx={{
                 alignSelf: isMe ? "flex-end" : "flex-start",
                 maxWidth: "85%",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: isMe ? "flex-end" : "flex-start",
               }}
             >
               <Paper
@@ -179,23 +233,64 @@ export const ChatWindow: FC<Props> = ({ chatId, title, onClose }) => {
                   {msg.text}
                 </Typography>
               </Paper>
-              <Typography
-                variant="caption"
-                color="text.secondary"
+
+              <Box
                 sx={{
-                  display: "block",
-                  textAlign: isMe ? "right" : "left",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 0.5,
                   mt: 0.5,
-                  fontSize: "0.7rem",
                 }}
               >
-                {msg.timestamp
-                  ?.toDate()
-                  .toLocaleTimeString([], {
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ fontSize: "0.7rem" }}
+                >
+                  {msg.timestamp?.toDate().toLocaleTimeString([], {
                     hour: "2-digit",
                     minute: "2-digit",
                   })}
-              </Typography>
+                </Typography>
+
+                {/* Status Indicator */}
+                {showStatus && (
+                  <Box
+                    component="span"
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      color: isSeen ? "primary.main" : "text.disabled",
+                    }}
+                  >
+                    {isSeen ? (
+                      <>
+                        <DoneAllIcon sx={{ fontSize: 14, mr: 0.5 }} />
+                        <Typography
+                          variant="caption"
+                          sx={{ fontSize: "0.7rem", fontWeight: "bold" }}
+                        >
+                          Seen{" "}
+                          {otherLastSeen?.toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </Typography>
+                      </>
+                    ) : (
+                      <>
+                        <CheckIcon sx={{ fontSize: 14, mr: 0.5 }} />
+                        <Typography
+                          variant="caption"
+                          sx={{ fontSize: "0.7rem" }}
+                        >
+                          Delivered
+                        </Typography>
+                      </>
+                    )}
+                  </Box>
+                )}
+              </Box>
             </Box>
           );
         })}

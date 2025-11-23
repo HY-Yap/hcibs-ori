@@ -23,7 +23,6 @@ import {
   MenuItem,
   ListItemIcon,
   Divider,
-  // --- NEW IMPORTS ---
   TextField,
   FormControl,
   InputLabel,
@@ -35,7 +34,7 @@ import {
   onSnapshot,
   query,
   orderBy as firestoreOrderBy,
-} from "firebase/firestore"; // Renamed orderBy to avoid conflict
+} from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, functions as firebaseFunctions } from "../firebase";
 import { StationModal, type StationData } from "../components/StationModal";
@@ -44,8 +43,13 @@ import EditIcon from "@mui/icons-material/Edit";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 
 type StationType = "manned" | "unmanned" | "ALL";
-type StationStatus = "OPEN" | "LUNCH_SOON" | "CLOSED_LUNCH" | "CLOSED_PERMANENTLY" | "ALL";
-type SortableColumn = "name" | "type" | "location" | "status";
+type StationStatus =
+  | "OPEN"
+  | "LUNCH_SOON"
+  | "CLOSED_LUNCH"
+  | "CLOSED_PERMANENTLY"
+  | "ALL";
+type SortableColumn = "name" | "type" | "location" | "status" | "points"; // ADDED points
 type Order = "asc" | "desc";
 
 export const AdminStationManagement: React.FC = () => {
@@ -53,7 +57,6 @@ export const AdminStationManagement: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Modal & Menu state
   const [isModalOpen, setModalOpen] = useState(false);
   const [stationToEdit, setStationToEdit] = useState<StationData | null>(null);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
@@ -63,7 +66,6 @@ export const AdminStationManagement: React.FC = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
-  // --- NEW FILTER/SORT STATE ---
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState<StationType>("ALL");
   const [filterStatus, setFilterStatus] = useState<StationStatus>("ALL");
@@ -72,8 +74,7 @@ export const AdminStationManagement: React.FC = () => {
 
   useEffect(() => {
     setLoading(true);
-    // Real-time listener
-    const q = query(collection(db, "stations"), firestoreOrderBy("name")); // Keep default sort by name
+    const q = query(collection(db, "stations"), firestoreOrderBy("name"));
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
@@ -93,7 +94,6 @@ export const AdminStationManagement: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
-  // --- NEW! Memoized, Filtered, and Sorted List ---
   const filteredAndSortedStations = useMemo(() => {
     return stations
       .filter((s) => {
@@ -110,6 +110,13 @@ export const AdminStationManagement: React.FC = () => {
         return true;
       })
       .sort((a, b) => {
+        // ADDED: Handle points sorting
+        if (orderBy === "points") {
+          const pointsA = a.points || 0;
+          const pointsB = b.points || 0;
+          return order === "asc" ? pointsA - pointsB : pointsB - pointsA;
+        }
+
         const valueA = (a[orderBy] || "").toString().toLowerCase();
         const valueB = (b[orderBy] || "").toString().toLowerCase();
         if (valueB < valueA) return order === "asc" ? 1 : -1;
@@ -118,7 +125,6 @@ export const AdminStationManagement: React.FC = () => {
       });
   }, [stations, searchTerm, filterType, filterStatus, orderBy, order]);
 
-  // --- NEW! Sort Handler ---
   const handleRequestSort = (property: SortableColumn) => {
     const isAsc = orderBy === property && order === "asc";
     setOrder(isAsc ? "desc" : "asc");
@@ -179,7 +185,6 @@ export const AdminStationManagement: React.FC = () => {
         </Alert>
       )}
 
-      {/* --- NEW FILTER BAR --- */}
       <Paper sx={{ p: 2, mb: 2 }}>
         <Box
           sx={{
@@ -273,6 +278,15 @@ export const AdminStationManagement: React.FC = () => {
               </TableCell>
               <TableCell>
                 <TableSortLabel
+                  active={orderBy === "points"}
+                  direction={orderBy === "points" ? order : "asc"}
+                  onClick={() => handleRequestSort("points")}
+                >
+                  Points
+                </TableSortLabel>
+              </TableCell>
+              <TableCell>
+                <TableSortLabel
                   active={orderBy === "location"}
                   direction={orderBy === "location" ? order : "asc"}
                   onClick={() => handleRequestSort("location")}
@@ -295,13 +309,13 @@ export const AdminStationManagement: React.FC = () => {
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={5} align="center">
+                <TableCell colSpan={6} align="center">
                   <CircularProgress />
                 </TableCell>
               </TableRow>
             ) : filteredAndSortedStations.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} align="center">
+                <TableCell colSpan={6} align="center">
                   {stations.length === 0
                     ? "No stations found."
                     : "No stations match filters."}
@@ -318,6 +332,7 @@ export const AdminStationManagement: React.FC = () => {
                       size="small"
                     />
                   </TableCell>
+                  <TableCell>{s.points || 0}</TableCell>
                   <TableCell>{s.location || "-"}</TableCell>
                   <TableCell>
                     <Chip

@@ -25,7 +25,7 @@ import {
   Snackbar,
   Alert,
 } from "@mui/material";
-import { collection, query, orderBy, onSnapshot} from "firebase/firestore";
+import { collection, query, orderBy, onSnapshot } from "firebase/firestore";
 import { getFunctions, httpsCallable } from "firebase/functions";
 import { db } from "../firebase";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -38,6 +38,7 @@ interface AnnouncementData {
   message: string;
   timestamp: any;
   targets?: string[];
+  createdBy?: string;
 }
 
 export const AdminAnnouncementManagement: React.FC = () => {
@@ -66,15 +67,21 @@ export const AdminAnnouncementManagement: React.FC = () => {
   const [deleteAllConfirm, setDeleteAllConfirm] = useState("");
 
   useEffect(() => {
-    const q = query(collection(db, "announcements"), orderBy("timestamp", "desc"));
+    const q = query(
+      collection(db, "announcements"),
+      orderBy("timestamp", "desc")
+    );
     const unsub = onSnapshot(q, (snap) => {
-      setAnnouncements(
-        snap.docs.map((d) => ({ id: d.id, ...d.data() } as AnnouncementData))
-      );
+      // Filter out announcements created by SYSTEM
+      const filteredAnnouncements = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() } as AnnouncementData))
+        .filter((ann) => ann.createdBy !== "SYSTEM"); // NEW: Filter condition
+
+      setAnnouncements(filteredAnnouncements);
       setLoading(false);
     });
 
-    // NEW: Fetch stations to resolve SM:{id} to SM (Station Name)
+    // Fetch stations to resolve SM:{id} to SM (Station Name)
     const unsubStations = onSnapshot(collection(db, "stations"), (snap) => {
       const map: Record<string, string> = {};
       snap.docs.forEach((doc) => {
@@ -85,10 +92,9 @@ export const AdminAnnouncementManagement: React.FC = () => {
 
     return () => {
       unsub();
-      unsubStations(); // Cleanup
+      unsubStations();
     };
   }, []);
-
   // NEW: Helper to format target string
   const formatTarget = (t: string) => {
     if (t.startsWith("SM:")) {
@@ -137,7 +143,10 @@ export const AdminAnnouncementManagement: React.FC = () => {
   const handleDeleteSingle = async (id: string) => {
     if (!window.confirm("Delete this announcement?")) return;
     try {
-      const fn = httpsCallable(getFunctions(undefined, "asia-southeast1"), "deleteAnnouncement");
+      const fn = httpsCallable(
+        getFunctions(undefined, "asia-southeast1"),
+        "deleteAnnouncement"
+      );
       await fn({ id });
     } catch (err: any) {
       alert("Error: " + err.message);
@@ -148,7 +157,10 @@ export const AdminAnnouncementManagement: React.FC = () => {
     if (deleteAllConfirm !== "DELETE") return;
     setActionLoading(true);
     try {
-      const fn = httpsCallable(getFunctions(undefined, "asia-southeast1"), "deleteAllAnnouncements");
+      const fn = httpsCallable(
+        getFunctions(undefined, "asia-southeast1"),
+        "deleteAllAnnouncements"
+      );
       await fn();
       setDeleteAllOpen(false);
       setDeleteAllConfirm("");
@@ -167,11 +179,16 @@ export const AdminAnnouncementManagement: React.FC = () => {
     page * itemsPerPage
   );
 
-  if (loading) return <CircularProgress sx={{ display: "block", mx: "auto", mt: 4 }} />;
+  if (loading)
+    return <CircularProgress sx={{ display: "block", mx: "auto", mt: 4 }} />;
 
   return (
     <Box sx={{ maxWidth: 800, mx: "auto", pb: 4 }}>
-      <Typography variant="h4" gutterBottom sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+      <Typography
+        variant="h4"
+        gutterBottom
+        sx={{ display: "flex", alignItems: "center", gap: 1 }}
+      >
         <CampaignIcon /> Announcement Management
       </Typography>
 
@@ -201,8 +218,10 @@ export const AdminAnnouncementManagement: React.FC = () => {
 
         {/* Target Selection Checkboxes - Optimized for Mobile Row */}
         <FormControl component="fieldset" sx={{ mb: 2, width: "100%" }}>
-          <FormLabel component="legend" sx={{ fontSize: "0.875rem", mb: 0.5 }}>
-          </FormLabel>
+          <FormLabel
+            component="legend"
+            sx={{ fontSize: "0.875rem", mb: 0.5 }}
+          ></FormLabel>
           <FormGroup
             row
             sx={{
@@ -214,8 +233,8 @@ export const AdminAnnouncementManagement: React.FC = () => {
                 ml: -1, // Pull closer slightly
               },
               "& .MuiTypography-root": {
-                fontSize: { xs: "0.8rem", sm: "1rem" } // Smaller text on mobile
-              }
+                fontSize: { xs: "0.8rem", sm: "1rem" }, // Smaller text on mobile
+              },
             }}
           >
             <FormControlLabel
@@ -225,7 +244,10 @@ export const AdminAnnouncementManagement: React.FC = () => {
                   onChange={handleTargetChange}
                   name="OGL"
                   size="small"
-                  sx={{ color: "#b97539", "&.Mui-checked": { color: "#b97539" } }}
+                  sx={{
+                    color: "#b97539",
+                    "&.Mui-checked": { color: "#b97539" },
+                  }}
                 />
               }
               label="OGLs"
@@ -237,7 +259,10 @@ export const AdminAnnouncementManagement: React.FC = () => {
                   onChange={handleTargetChange}
                   name="SM"
                   size="small"
-                  sx={{ color: "#b97539", "&.Mui-checked": { color: "#b97539" } }}
+                  sx={{
+                    color: "#b97539",
+                    "&.Mui-checked": { color: "#b97539" },
+                  }}
                 />
               }
               label="SMs"
@@ -249,7 +274,10 @@ export const AdminAnnouncementManagement: React.FC = () => {
                   onChange={handleTargetChange}
                   name="ADMIN"
                   size="small"
-                  sx={{ color: "#b97539", "&.Mui-checked": { color: "#b97539" } }}
+                  sx={{
+                    color: "#b97539",
+                    "&.Mui-checked": { color: "#b97539" },
+                  }}
                 />
               }
               label="Admins"
@@ -261,7 +289,10 @@ export const AdminAnnouncementManagement: React.FC = () => {
                   onChange={handleTargetChange}
                   name="GUEST"
                   size="small"
-                  sx={{ color: "#b97539", "&.Mui-checked": { color: "#b97539" } }}
+                  sx={{
+                    color: "#b97539",
+                    "&.Mui-checked": { color: "#b97539" },
+                  }}
                 />
               }
               label="Guests"
@@ -309,7 +340,11 @@ export const AdminAnnouncementManagement: React.FC = () => {
                 {index > 0 && <Divider />}
                 <ListItem
                   secondaryAction={
-                    <IconButton edge="end" color="error" onClick={() => handleDeleteSingle(ann.id)}>
+                    <IconButton
+                      edge="end"
+                      color="error"
+                      onClick={() => handleDeleteSingle(ann.id)}
+                    >
                       <DeleteIcon />
                     </IconButton>
                   }
@@ -323,7 +358,10 @@ export const AdminAnnouncementManagement: React.FC = () => {
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
                           {/* UPDATED: Use formatTarget to show readable names */}
-                          Targets: {ann.targets ? ann.targets.map(formatTarget).join(", ") : "ALL"}
+                          Targets:{" "}
+                          {ann.targets
+                            ? ann.targets.map(formatTarget).join(", ")
+                            : "ALL"}
                         </Typography>
                       </>
                     }
@@ -335,14 +373,31 @@ export const AdminAnnouncementManagement: React.FC = () => {
         </List>
         {totalPages > 1 && (
           <Box sx={{ display: "flex", justifyContent: "center", py: 2 }}>
-            <Pagination count={totalPages} page={page} onChange={(_, p) => setPage(p)} color="primary" />
+            <Pagination
+              count={totalPages}
+              page={page}
+              onChange={(_, p) => setPage(p)}
+              color="primary"
+            />
           </Box>
         )}
       </Paper>
 
       {/* Danger Zone */}
-      <Box sx={{ p: 3, border: "2px solid #c62828", borderRadius: 2, bgcolor: "#ffebee" }}>
-        <Typography variant="h6" color="error" gutterBottom sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+      <Box
+        sx={{
+          p: 3,
+          border: "2px solid #c62828",
+          borderRadius: 2,
+          bgcolor: "#ffebee",
+        }}
+      >
+        <Typography
+          variant="h6"
+          color="error"
+          gutterBottom
+          sx={{ display: "flex", alignItems: "center", gap: 1 }}
+        >
           <WarningIcon /> Danger Zone
         </Typography>
         <Typography paragraph>Permanently delete ALL announcements.</Typography>
@@ -357,7 +412,9 @@ export const AdminAnnouncementManagement: React.FC = () => {
 
       {/* Delete All Dialog */}
       <Dialog open={deleteAllOpen} onClose={() => setDeleteAllOpen(false)}>
-        <DialogTitle sx={{ color: "#c62828" }}>DELETE ALL ANNOUNCEMENTS?</DialogTitle>
+        <DialogTitle sx={{ color: "#c62828" }}>
+          DELETE ALL ANNOUNCEMENTS?
+        </DialogTitle>
         <DialogContent>
           <DialogContentText sx={{ mb: 2 }}>
             This action cannot be undone. Type DELETE to confirm.
@@ -388,7 +445,11 @@ export const AdminAnnouncementManagement: React.FC = () => {
         onClose={() => setToastOpen(false)}
         anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
       >
-        <Alert onClose={() => setToastOpen(false)} severity="success" sx={{ width: "100%" }}>
+        <Alert
+          onClose={() => setToastOpen(false)}
+          severity="success"
+          sx={{ width: "100%" }}
+        >
           Announcement sent successfully.
         </Alert>
       </Snackbar>

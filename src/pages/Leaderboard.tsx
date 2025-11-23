@@ -59,8 +59,16 @@ export const LeaderboardPage: FC = () => {
         if (!response.ok) throw new Error("Failed to fetch");
         const data = await response.json();
 
-        setGroups(data.groups);
-        setHouses(data.houses);
+        // Filter out teams/houses with 0 points
+        const filteredGroups = data.groups.filter(
+          (g: GroupData) => g.totalScore > 0
+        );
+        const filteredHouses = data.houses.filter(
+          (h: HouseData) => h.totalScore > 0
+        );
+
+        setGroups(filteredGroups);
+        setHouses(filteredHouses);
         setIsHouseEnabled(data.isHouseEnabled);
         setLoading(false);
       } catch (err: any) {
@@ -91,7 +99,7 @@ export const LeaderboardPage: FC = () => {
   // Determine which list to show based on Tab
   const activeList = tabValue === 0 ? groups : houses;
 
-  // Get top 3 for podium
+  // Get top 3 for podium (only if they have points)
   const topThree = activeList.slice(0, 3);
 
   // Get remaining teams (4th place onwards) for the table
@@ -107,9 +115,7 @@ export const LeaderboardPage: FC = () => {
       }}
     >
       {/* HEADER WITH SPINNING TROPHY (ONE-TIME) */}
-      <Box sx={{ textAlign: "center", mb: isHouseEnabled ? 6 : 0 }}>
-        {" "}
-        {/* Dynamic spacing */}
+      <Box sx={{ textAlign: "center", mb: isHouseEnabled ? 6 : 3 }}>
         <motion.div
           initial={{ scale: 0 }}
           animate={{ scale: 1, rotate: 360 }}
@@ -145,7 +151,7 @@ export const LeaderboardPage: FC = () => {
       {isHouseEnabled && (
         <Paper
           elevation={2}
-          sx={{ mb: 0, borderRadius: 3, overflow: "hidden" }}
+          sx={{ mb: 2, borderRadius: 3, overflow: "hidden" }}
         >
           <Tabs
             value={tabValue}
@@ -163,128 +169,154 @@ export const LeaderboardPage: FC = () => {
         </Paper>
       )}
 
-      {/* USE THE STATIC PODIUM COMPONENT */}
-      {topThree.length >= 1 && (
-        <Podium winners={topThree} type={tabValue === 0 ? "GROUP" : "HOUSE"} />
-      )}
-
-      {/* CLASSIC TABLE - Only show 4th place onwards */}
-      {remainingTeams.length > 0 && (
-        <TableContainer
-          component={Paper}
-          elevation={2}
-          sx={{ borderRadius: 3, overflow: "hidden" }}
+      {/* SHOW EMPTY STATE if no teams have points */}
+      {activeList.length === 0 ? (
+        <Paper
+          elevation={1}
+          sx={{
+            p: 6,
+            textAlign: "center",
+            borderRadius: 3,
+            bgcolor: "background.paper",
+          }}
         >
-          <Table>
-            <TableHead sx={{ bgcolor: theme.palette.primary.main }}>
-              <TableRow>
-                <TableCell
-                  sx={{
-                    color: "white",
-                    fontWeight: "bold",
-                    py: 2.5,
-                    pl: 4,
-                    fontSize: "1.1rem",
-                  }}
-                >
-                  Rank
-                </TableCell>
-                <TableCell
-                  sx={{
-                    color: "white",
-                    fontWeight: "bold",
-                    py: 2.5,
-                    fontSize: "1.1rem",
-                  }}
-                >
-                  {tabValue === 0 ? "Group" : "House"}
-                </TableCell>
-                <TableCell
-                  align="right"
-                  sx={{
-                    color: "white",
-                    fontWeight: "bold",
-                    py: 2.5,
-                    pr: 4,
-                    fontSize: "1.1rem",
-                  }}
-                >
-                  Total Score
-                </TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody component={motion.tbody} layout>
-              <AnimatePresence>
-                {remainingTeams.map((item, index) => {
-                  const rank = index + 4; // Start from 4th place
+          <Typography variant="h5" color="text.secondary" gutterBottom>
+            No scores yet!
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            The competition will begin soon. Check back once teams start earning
+            points.
+          </Typography>
+        </Paper>
+      ) : (
+        <>
+          {/* PODIUM - Only show if we have at least 1 team with points */}
+          {topThree.length >= 1 && (
+            <Podium
+              winners={topThree}
+              type={tabValue === 0 ? "GROUP" : "HOUSE"}
+            />
+          )}
 
-                  return (
-                    <MotionTableRow
-                      key={item.id}
-                      layout
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{
-                        opacity: 1,
-                        y: 0,
-                        scale: 1,
-                        backgroundColor: "inherit",
-                        zIndex: remainingTeams.length - index,
-                      }}
-                      exit={{ opacity: 0, x: -20 }}
-                      transition={{
-                        type: "spring",
-                        stiffness: 500,
-                        damping: 50,
-                        mass: 1,
-                      }}
+          {/* TABLE - Only show 4th place onwards if they exist */}
+          {remainingTeams.length > 0 && (
+            <TableContainer
+              component={Paper}
+              elevation={2}
+              sx={{ borderRadius: 3, overflow: "hidden" }}
+            >
+              <Table>
+                <TableHead sx={{ bgcolor: theme.palette.primary.main }}>
+                  <TableRow>
+                    <TableCell
                       sx={{
-                        position: "relative",
-                        "& td": {
-                          borderBottom: "1px solid",
-                          borderColor: theme.palette.divider,
-                        },
+                        color: "white",
+                        fontWeight: "bold",
+                        py: 2.5,
+                        pl: 4,
+                        fontSize: "1.1rem",
                       }}
                     >
-                      <TableCell
-                        sx={{
-                          fontSize: "1.2rem",
-                          fontWeight: 400,
-                          py: 2,
-                          pl: 4,
-                          width: "15%",
-                        }}
-                      >
-                        <motion.div
-                          key={rank}
-                          initial={{ scale: 0.8, opacity: 0 }}
-                          animate={{ scale: 1, opacity: 1 }}
-                          transition={{ duration: 0.3 }}
-                        >
-                          {rank}
-                        </motion.div>
-                      </TableCell>
-                      <TableCell sx={{ fontSize: "1.2rem", py: 2 }}>
-                        {item.name}
-                      </TableCell>
-                      <TableCell align="right" sx={{ py: 2, pr: 4 }}>
-                        <Chip
-                          label={item.totalScore.toLocaleString()}
-                          color="default"
-                          sx={{
-                            fontWeight: "bold",
-                            fontSize: "1rem",
-                            height: 32,
-                            px: 1,
+                      Rank
+                    </TableCell>
+                    <TableCell
+                      sx={{
+                        color: "white",
+                        fontWeight: "bold",
+                        py: 2.5,
+                        fontSize: "1.1rem",
+                      }}
+                    >
+                      {tabValue === 0 ? "Group" : "House"}
+                    </TableCell>
+                    <TableCell
+                      align="right"
+                      sx={{
+                        color: "white",
+                        fontWeight: "bold",
+                        py: 2.5,
+                        pr: 4,
+                        fontSize: "1.1rem",
+                      }}
+                    >
+                      Total Score
+                    </TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody component={motion.tbody} layout>
+                  <AnimatePresence>
+                    {remainingTeams.map((item, index) => {
+                      const rank = index + 4;
+
+                      return (
+                        <MotionTableRow
+                          key={item.id}
+                          layout
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{
+                            opacity: 1,
+                            y: 0,
+                            scale: 1,
+                            backgroundColor: "inherit",
+                            zIndex: remainingTeams.length - index,
                           }}
-                        />
-                      </TableCell>
-                    </MotionTableRow>
-                  );
-                })}
-              </AnimatePresence>
-            </TableBody>
-          </Table>
-        </TableContainer>
+                          exit={{ opacity: 0, x: -20 }}
+                          transition={{
+                            type: "spring",
+                            stiffness: 500,
+                            damping: 50,
+                            mass: 1,
+                          }}
+                          sx={{
+                            position: "relative",
+                            "& td": {
+                              borderBottom: "1px solid",
+                              borderColor: theme.palette.divider,
+                            },
+                          }}
+                        >
+                          <TableCell
+                            sx={{
+                              fontSize: "1.2rem",
+                              fontWeight: 400,
+                              py: 2,
+                              pl: 4,
+                              width: "15%",
+                            }}
+                          >
+                            <motion.div
+                              key={rank}
+                              initial={{ scale: 0.8, opacity: 0 }}
+                              animate={{ scale: 1, opacity: 1 }}
+                              transition={{ duration: 0.3 }}
+                            >
+                              {rank}
+                            </motion.div>
+                          </TableCell>
+                          <TableCell sx={{ fontSize: "1.2rem", py: 2 }}>
+                            {item.name}
+                          </TableCell>
+                          <TableCell align="right" sx={{ py: 2, pr: 4 }}>
+                            <Chip
+                              label={item.totalScore.toLocaleString()}
+                              color="default"
+                              sx={{
+                                fontWeight: "bold",
+                                fontSize: "1rem",
+                                height: 32,
+                                px: 1,
+                              }}
+                            />
+                          </TableCell>
+                        </MotionTableRow>
+                      );
+                    })}
+                  </AnimatePresence>
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+        </>
       )}
     </Box>
   );

@@ -36,9 +36,12 @@ export interface StationData {
   id?: string;
   name: string;
   type: "manned" | "unmanned";
-  location?: string;
-  description?: string;
+  description: string;
+  location: string;
+  points?: number; // ADDED
   status?: string;
+  travelingCount?: number;
+  arrivedCount?: number;
 }
 
 interface StationModalProps {
@@ -56,6 +59,7 @@ export const StationModal: FC<StationModalProps> = ({
 }) => {
   const [name, setName] = useState("");
   const [type, setType] = useState<"manned" | "unmanned" | "">("");
+  const [points, setPoints] = useState(50); // Default 50
   const [location, setLocation] = useState("");
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState<
@@ -73,6 +77,7 @@ export const StationModal: FC<StationModalProps> = ({
       setLocation(initialData.location || "");
       setDescription(initialData.description || "");
       setStatus(initialData.status as any);
+      setPoints(initialData.points || 0);
     } else if (open && !initialData) {
       // Reset if creating new
       setName("");
@@ -80,6 +85,7 @@ export const StationModal: FC<StationModalProps> = ({
       setLocation("");
       setDescription("");
       setStatus("OPEN");
+      setPoints(0);
     }
     setError(null);
   }, [open, initialData]);
@@ -99,11 +105,12 @@ export const StationModal: FC<StationModalProps> = ({
           type,
           location,
           description,
+          points,
         });
       } else {
         // CREATE new
         const createFn = httpsCallable(functions, "createStation");
-        await createFn({ name, type, location, description });
+        await createFn({ name, type, location, description, points });
       }
 
       // If editing an existing station and status changed, call updateStationStatus
@@ -151,6 +158,17 @@ export const StationModal: FC<StationModalProps> = ({
           </Select>
         </FormControl>
         <TextField
+          label="Points"
+          type="number"
+          fullWidth
+          margin="normal"
+          value={points}
+          onChange={(e) => setPoints(parseInt(e.target.value) || 0)}
+          required
+          inputProps={{ min: 0 }}
+          helperText="Points awarded for completing this station. For manned stations, this is the maximum points."
+        />
+        <TextField
           label="Location (Optional)"
           variant="outlined"
           fullWidth
@@ -177,7 +195,11 @@ export const StationModal: FC<StationModalProps> = ({
             label="Status"
             onChange={(e) =>
               setStatus(
-                e.target.value as "OPEN" | "LUNCH_SOON" | "CLOSED_LUNCH" | "CLOSED_PERMANENTLY"
+                e.target.value as
+                  | "OPEN"
+                  | "LUNCH_SOON"
+                  | "CLOSED_LUNCH"
+                  | "CLOSED_PERMANENTLY"
               )
             }
           >
