@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import type { FC } from "react";
 import {
   Box,
@@ -7,6 +8,9 @@ import {
   Paper,
   Grid,
   useTheme,
+  Alert,
+  Pagination,
+  Stack,
 } from "@mui/material";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
@@ -14,9 +18,59 @@ import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome"; // Sparkles
 import MapIcon from "@mui/icons-material/Map";
 import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import CampaignIcon from "@mui/icons-material/Campaign";
+import {
+  collection,
+  query,
+  where,
+  // orderBy, // Removed to prevent index errors
+  onSnapshot,
+} from "firebase/firestore";
+import { db } from "../firebase";
 
 export const HomePage: FC = () => {
   const theme = useTheme();
+  const [announcements, setAnnouncements] = useState<any[]>([]);
+  const [page, setPage] = useState(1);
+  const ITEMS_PER_PAGE = 10;
+
+  useEffect(() => {
+    // Fetch ALL guest announcements without server-side ordering to prevent index bugs
+    const q = query(
+      collection(db, "announcements"),
+      where("targets", "array-contains", "GUEST")
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const docs = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      })) as any[];
+
+      // Sort client-side (Newest first)
+      docs.sort((a, b) => {
+        const timeA = a.timestamp?.toMillis() || 0;
+        const timeB = b.timestamp?.toMillis() || 0;
+        return timeB - timeA;
+      });
+
+      setAnnouncements(docs);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handlePageChange = (
+    _event: React.ChangeEvent<unknown>,
+    value: number
+  ) => {
+    setPage(value);
+  };
+
+  const pageCount = Math.ceil(announcements.length / ITEMS_PER_PAGE);
+  const displayedAnnouncements = announcements.slice(
+    (page - 1) * ITEMS_PER_PAGE,
+    page * ITEMS_PER_PAGE
+  );
 
   const scrollToLore = () => {
     const loreSection = document.getElementById("lore-section");
@@ -110,10 +164,13 @@ export const HomePage: FC = () => {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, ease: "easeOut" }}
             >
-              <AutoAwesomeIcon
+              <Box
+                component="img"
+                src="/logo.png"
+                alt="Logo"
                 sx={{
-                  fontSize: 60,
-                  color: theme.palette.warning.main,
+                  width: 150,
+                  height: "auto",
                   mb: 2,
                   filter: "drop-shadow(0 0 10px rgba(238,196,92,0.8))",
                 }}
@@ -319,7 +376,7 @@ export const HomePage: FC = () => {
               {
                 icon: <AutoAwesomeIcon fontSize="large" />,
                 title: "Conquer",
-                desc: "Complete challenges to earn points.",
+                desc: "Complete challenges to earn points and win against others.",
               },
               {
                 icon: <EmojiEventsIcon fontSize="large" />,
@@ -373,6 +430,97 @@ export const HomePage: FC = () => {
               </Grid>
             ))}
           </Grid>
+        </Container>
+      </Box>
+
+      {/* --- SECTION 3.5: GUEST ANNOUNCEMENTS (MOVED HERE) --- */}
+      <Box sx={{ py: 8, bgcolor: "#fff8e1" }}>
+        <Container maxWidth="md">
+          <Typography
+            variant="h4"
+            align="center"
+            gutterBottom
+            sx={{
+              mb: 4,
+              fontWeight: "bold",
+              color: theme.palette.warning.dark,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 1,
+            }}
+          >
+            <CampaignIcon fontSize="large" /> Latest Updates
+          </Typography>
+
+          {announcements.length === 0 ? (
+            <Typography
+              align="center"
+              color="text.secondary"
+              sx={{ fontStyle: "italic", mt: 2 }}
+            >
+              No announcements yet.
+            </Typography>
+          ) : (
+            <>
+              <Stack spacing={2}>
+                {displayedAnnouncements.map((ann) => (
+                  <motion.div
+                    key={ann.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true }}
+                  >
+                    <Alert
+                      severity="info"
+                      icon={<CampaignIcon fontSize="inherit" />}
+                      sx={{
+                        "& .MuiAlert-message": { width: "100%" },
+                        boxShadow: 1,
+                        bgcolor: "#ffffff",
+                      }}
+                    >
+                      <Typography
+                        variant="subtitle2"
+                        sx={{
+                          fontWeight: "bold",
+                          color: theme.palette.warning.dark,
+                        }}
+                      >
+                        {ann.timestamp?.toDate().toLocaleString([], {
+                          month: "short",
+                          day: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </Typography>
+                      <Typography variant="body1">{ann.message}</Typography>
+                    </Alert>
+                  </motion.div>
+                ))}
+              </Stack>
+
+              {pageCount > 1 && (
+                <Box sx={{ display: "flex", justifyContent: "center", mt: 4 }}>
+                  <Pagination
+                    count={pageCount}
+                    page={page}
+                    onChange={handlePageChange}
+                    size="large"
+                    sx={{
+                      "& .MuiPaginationItem-root.Mui-selected": {
+                        bgcolor: "warning.main",
+                        color: "warning.contrastText",
+                        "&:hover": {
+                          bgcolor: "warning.dark",
+                        },
+                      },
+                    }}
+                  />
+                </Box>
+              )}
+            </>
+          )}
         </Container>
       </Box>
 
