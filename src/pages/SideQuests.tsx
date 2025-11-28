@@ -39,7 +39,10 @@ export const SideQuestsPage: FC = () => {
         );
         if (!res.ok) throw new Error("Failed to load");
         const data = await res.json();
-        setQuests(data.sideQuests);
+        const sorted = data.sideQuests.sort(
+          (a: SideQuestData, b: SideQuestData) => a.points - b.points
+        );
+        setQuests(sorted);
       } catch (err) {
         console.error(err);
         setError("Could not load quests.");
