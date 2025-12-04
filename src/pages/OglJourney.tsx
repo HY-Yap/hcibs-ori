@@ -21,6 +21,7 @@ import {
   TextField,
   Divider,
   Badge,
+  ListSubheader, // Added
 } from "@mui/material";
 import { useAuth } from "../context/AuthContext";
 import {
@@ -34,7 +35,7 @@ import { httpsCallable } from "firebase/functions";
 import { db, functions as firebaseFunctions } from "../firebase";
 import { FileUpload } from "../components/FileUpload";
 import { ChatWindow } from "../components/ChatWindow";
-import { getStorage, ref as storageRef, deleteObject } from "firebase/storage"; // ADD THIS
+import { getStorage, ref as storageRef, deleteObject } from "firebase/storage";
 
 // Icons
 import LocationOnIcon from "@mui/icons-material/LocationOn";
@@ -43,6 +44,48 @@ import RestaurantIcon from "@mui/icons-material/Restaurant";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import LockIcon from "@mui/icons-material/Lock";
 import ChatIcon from "@mui/icons-material/Chat";
+
+// --- CONFIGURATION ---
+const AREA_CONFIG: Record<
+  string,
+  { color: string; prerequisites: string[]; stations: string[] }
+> = {
+  "Central-West Area": {
+    color: "#e3f2fd", // Light Blue
+    prerequisites: ["Holland Village", "Bishan"],
+    stations: [
+      "Holland Village",
+      "Bishan",
+      "Beauty World",
+      "King Albert Park",
+      "Botanic Gardens",
+      "Toa Payoh",
+    ],
+  },
+  "Circle Line Area": {
+    color: "#f3e5f5", // Light Purple
+    prerequisites: ["Paya Lebar", "Stadium"],
+    stations: [
+      "Paya Lebar",
+      "Stadium",
+      "Promenade",
+      "Serangoon",
+      "Esplanade",
+    ],
+  },
+  "CBD Area": {
+    color: "#e8f5e9", // Light Green
+    prerequisites: ["Bugis", "Clarke Quay"],
+    stations: [
+      "Bugis",
+      "Clarke Quay",
+      "Fort Canning",
+      "City Hall",
+      "Raffles Place",
+      "National Library",
+    ],
+  },
+};
 
 interface StationData {
   id: string;
@@ -533,6 +576,32 @@ export const OglJourney: FC = () => {
   }
 
   // --- VIEW 4: IDLE ---
+  // Group stations by Area
+  const groupedStations: Record<string, StationData[]> = {};
+  const otherStations: StationData[] = [];
+
+  Object.keys(AREA_CONFIG).forEach((key) => (groupedStations[key] = []));
+
+  stations.forEach((s) => {
+    const areaKey = Object.keys(AREA_CONFIG).find((key) =>
+      AREA_CONFIG[key].stations.includes(s.name)
+    );
+    if (areaKey) {
+      groupedStations[areaKey].push(s);
+    } else {
+      otherStations.push(s);
+    }
+  });
+
+  // Sort stations within each area: Manned first
+  Object.keys(groupedStations).forEach((key) => {
+    groupedStations[key].sort((a, b) => {
+      if (a.type === "manned" && b.type !== "manned") return -1;
+      if (a.type !== "manned" && b.type === "manned") return 1;
+      return 0;
+    });
+  });
+
   return (
     <Box>
       <Box
@@ -555,97 +624,302 @@ export const OglJourney: FC = () => {
         </Button>
       </Box>
       <List sx={{ width: "100%", bgcolor: "background.paper" }}>
-        {stations.map((s) => {
-          const isCompleted = groupData.completedStations?.includes(s.id);
-          const isOpen = s.status === "OPEN";
-          const isDisabled = isCompleted || !isOpen;
+        {Object.entries(AREA_CONFIG).map(([areaName, config]) => {
+          const areaStations = groupedStations[areaName];
+          if (!areaStations || areaStations.length === 0) return null;
+
+          // 1. Calculate Area Occupancy (Limit: 8)
+          const areaOccupancy = areaStations.reduce(
+            (sum, s) => sum + s.travelingCount + s.arrivedCount,
+            0
+          );
+          const isAreaFull = areaOccupancy >= 8;
+
+          // 2. Check Prerequisites (Top 2 stations)
+          // We need to find the IDs of the prerequisite stations in this area
+          const prereqStationIds = stations
+            .filter((s) => config.prerequisites.includes(s.name))
+            .map((s) => s.id);
+          const completedIds = groupData?.completedStations || [];
+          const arePrereqsMet = prereqStationIds.every((id) =>
+            completedIds.includes(id)
+          );
+
           return (
-            <React.Fragment key={s.id}>
-              <ListItem
+            <React.Fragment key={areaName}>
+              <ListSubheader
                 sx={{
-                  opacity: isDisabled ? 0.6 : 1,
+                  bgcolor: config.color,
+                  color: "text.primary",
+                  fontWeight: "bold",
+                  borderBottom: "1px solid rgba(0,0,0,0.1)",
                   display: "flex",
-                  alignItems: "center",
                   justifyContent: "space-between",
-                  py: 1.5,
                 }}
               >
-                <Box
-                  sx={{
-                    display: "flex",
-                    alignItems: "center",
-                    mr: 1,
-                    flex: 1,
-                    minWidth: 0,
-                  }}
-                >
-                  <ListItemAvatar>
-                    <Avatar
+                <span>{areaName}</span>
+                <Typography variant="caption" sx={{ alignSelf: "center" }}>
+                  {areaOccupancy}/8 Groups
+                </Typography>
+              </ListSubheader>
+              {areaStations.map((s) => {
+                const isCompleted = groupData.completedStations?.includes(s.id);
+                const isOpen = s.status === "OPEN";
+
+                // 3. Station Capacity (Limit: 3)
+                const stationOccupancy = s.travelingCount + s.arrivedCount;
+                const isStationFull = stationOccupancy >= 3;
+
+                // 4. Progression Lock
+                const isPrereqStation = config.prerequisites.includes(s.name);
+                const isProgressionLocked = !isPrereqStation && !arePrereqsMet;
+
+                // Determine Status & Disable State
+                let isDisabled = false;
+                let statusLabel = "";
+                let statusColor:
+                  | "default"
+                  | "primary"
+                  | "secondary"
+                  | "error"
+                  | "info"
+                  | "success"
+                  | "warning" = "default";
+                let icon = <LocationOnIcon />;
+                
+                // Default avatar color is now the section color instead of primary.main
+                // We use a darker shade or the color itself depending on visibility
+                // Since config.color is very light (e.g. #e3f2fd), we might want a darker version for the icon background
+                // or just use it. Let's try using a mapping or just hardcode darker variants for better contrast if needed.
+                // For now, let's stick to the requested section color, but maybe darken it slightly for the icon to be visible?
+                // Actually, the previous code used 'primary.main' etc.
+                // Let's map the area names to a darker "icon" color to ensure white icons show up, 
+                // or just use the light color and change icon color to black.
+                
+                // Let's define specific icon background colors based on the area to ensure contrast
+                let iconBgColor = "primary.main"; // Fallback
+                if (areaName === "Central-West Area") iconBgColor = "#2196f3"; // Blue
+                if (areaName === "Circle Line Area") iconBgColor = "#9c27b0"; // Purple
+                if (areaName === "CBD Area") iconBgColor = "#4caf50"; // Green
+
+                if (isCompleted) {
+                  isDisabled = true;
+                  statusLabel = "Done";
+                  statusColor = "success";
+                  icon = <CheckCircleIcon />;
+                  iconBgColor = "success.light";
+                } else if (!isOpen) {
+                  isDisabled = true;
+                  statusLabel = s.status.replace("_", " ");
+                  statusColor = "error";
+                  iconBgColor = "error.main";
+                } else if (isProgressionLocked) {
+                  isDisabled = true;
+                  statusLabel = "Locked";
+                  statusColor = "default";
+                  icon = <LockIcon />;
+                  iconBgColor = "action.disabled";
+                } else if (isStationFull) {
+                  isDisabled = true;
+                  statusLabel = "Full";
+                  statusColor = "warning";
+                  // Keep area color but maybe dimmed? or just keep area color
+                } else if (isAreaFull) {
+                  isDisabled = true;
+                  statusLabel = "Area Full";
+                  statusColor = "warning";
+                }
+
+                return (
+                  <React.Fragment key={s.id}>
+                    <ListItem
                       sx={{
-                        bgcolor: isCompleted
-                          ? "success.light"
-                          : isOpen
-                          ? "primary.main"
-                          : "error.main",
+                        opacity: isDisabled ? 0.6 : 1,
+                        bgcolor: isDisabled
+                          ? "rgba(0,0,0,0.02)"
+                          : "transparent",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        py: 1.5,
                       }}
                     >
-                      <LocationOnIcon />
-                    </Avatar>
-                  </ListItemAvatar>
-                  <ListItemText
-                    primary={s.name}
-                    secondary={
-                      <Box component="span" sx={{ display: "block" }}>
-                        <Typography
-                          component="span"
-                          variant="body2"
-                          color="text.primary"
-                          sx={{ fontWeight: "bold", mr: 1 }}
-                        >
-                          {s.type.toUpperCase()}
-                        </Typography>
-                        <Typography
-                          component="span"
-                          variant="caption"
-                          color="text.secondary"
-                          sx={{ whiteSpace: "nowrap" }}
-                        >{`(${s.travelingCount} inc / ${s.arrivedCount} wait)`}</Typography>
+                      <Box
+                        sx={{
+                          display: "flex",
+                          alignItems: "center",
+                          mr: 1,
+                          flex: 1,
+                          minWidth: 0,
+                        }}
+                      >
+                        <ListItemAvatar>
+                          <Avatar
+                            sx={{
+                              bgcolor: iconBgColor,
+                            }}
+                          >
+                            {icon}
+                          </Avatar>
+                        </ListItemAvatar>
+                        <ListItemText
+                          primary={s.name}
+                          secondary={
+                            <Box component="span" sx={{ display: "block" }}>
+                              <Typography
+                                component="span"
+                                variant="body2"
+                                color="text.primary"
+                                sx={{ fontWeight: "bold", mr: 1 }}
+                              >
+                                {s.type.toUpperCase()}
+                              </Typography>
+                              <Typography
+                                component="span"
+                                variant="caption"
+                                color="text.secondary"
+                                sx={{ whiteSpace: "nowrap" }}
+                              >{`(${s.travelingCount} inc / ${s.arrivedCount} wait)`}</Typography>
+                            </Box>
+                          }
+                        />
                       </Box>
-                    }
-                  />
-                </Box>
-                <Box sx={{ minWidth: "fit-content" }}>
-                  {isCompleted ? (
-                    <Chip
-                      icon={<CheckCircleIcon />}
-                      label="Done"
-                      color="success"
-                      size="small"
-                    />
-                  ) : !isOpen ? (
-                    <Chip
-                      label={s.status.replace("_", " ")}
-                      color="error"
-                      size="small"
-                    />
-                  ) : (
-                    <Button
-                      variant="contained"
-                      size="small"
-                      onClick={() => {
-                        setSelectedStation(s);
-                        setTravelDialogOpen(true);
-                      }}
-                    >
-                      GO
-                    </Button>
-                  )}
-                </Box>
-              </ListItem>
-              <Divider variant="inset" component="li" />
+                      <Box sx={{ minWidth: "fit-content" }}>
+                        {isDisabled ? (
+                          <Chip
+                            label={statusLabel}
+                            color={statusColor}
+                            size="small"
+                            icon={
+                              statusLabel === "Locked" ? <LockIcon /> : undefined
+                            }
+                          />
+                        ) : (
+                          <Button
+                            variant="contained"
+                            size="small"
+                            onClick={() => {
+                              setSelectedStation(s);
+                              setTravelDialogOpen(true);
+                            }}
+                          >
+                            GO
+                          </Button>
+                        )}
+                      </Box>
+                    </ListItem>
+                    <Divider variant="inset" component="li" />
+                  </React.Fragment>
+                );
+              })}
             </React.Fragment>
           );
         })}
+
+        {/* Render Other Stations if any */}
+        {otherStations.length > 0 && (
+          <>
+            <ListSubheader sx={{ fontWeight: "bold" }}>
+              Other Stations
+            </ListSubheader>
+            {otherStations.map((s) => {
+              const isCompleted = groupData.completedStations?.includes(s.id);
+              const isOpen = s.status === "OPEN";
+              const stationOccupancy = s.travelingCount + s.arrivedCount;
+              const isStationFull = stationOccupancy >= 3;
+              const isDisabled = isCompleted || !isOpen || isStationFull;
+
+              return (
+                <React.Fragment key={s.id}>
+                  <ListItem
+                    sx={{
+                      opacity: isDisabled ? 0.6 : 1,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      py: 1.5,
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        mr: 1,
+                        flex: 1,
+                        minWidth: 0,
+                      }}
+                    >
+                      <ListItemAvatar>
+                        <Avatar
+                          sx={{
+                            bgcolor: isCompleted
+                              ? "success.light"
+                              : isOpen
+                              ? "primary.main"
+                              : "error.main",
+                          }}
+                        >
+                          <LocationOnIcon />
+                        </Avatar>
+                      </ListItemAvatar>
+                      <ListItemText
+                        primary={s.name}
+                        secondary={
+                          <Box component="span" sx={{ display: "block" }}>
+                            <Typography
+                              component="span"
+                              variant="body2"
+                              color="text.primary"
+                              sx={{ fontWeight: "bold", mr: 1 }}
+                            >
+                              {s.type.toUpperCase()}
+                            </Typography>
+                            <Typography
+                              component="span"
+                              variant="caption"
+                              color="text.secondary"
+                              sx={{ whiteSpace: "nowrap" }}
+                            >{`(${s.travelingCount} inc / ${s.arrivedCount} wait)`}</Typography>
+                          </Box>
+                        }
+                      />
+                    </Box>
+                    <Box sx={{ minWidth: "fit-content" }}>
+                      {isCompleted ? (
+                        <Chip
+                          icon={<CheckCircleIcon />}
+                          label="Done"
+                          color="success"
+                          size="small"
+                        />
+                      ) : !isOpen ? (
+                        <Chip
+                          label={s.status.replace("_", " ")}
+                          color="error"
+                          size="small"
+                        />
+                      ) : isStationFull ? (
+                        <Chip label="Full" color="warning" size="small" />
+                      ) : (
+                        <Button
+                          variant="contained"
+                          size="small"
+                          onClick={() => {
+                            setSelectedStation(s);
+                            setTravelDialogOpen(true);
+                          }}
+                        >
+                          GO
+                        </Button>
+                      )}
+                    </Box>
+                  </ListItem>
+                  <Divider variant="inset" component="li" />
+                </React.Fragment>
+              );
+            })}
+          </>
+        )}
       </List>
       <Dialog
         open={travelDialogOpen}

@@ -17,7 +17,6 @@ import {
   ListItemText,
   Divider,
   ListItemButton,
-  Snackbar,
   Pagination,
 } from "@mui/material";
 import { useAuth } from "../context/AuthContext";
@@ -38,10 +37,10 @@ import RestaurantIcon from "@mui/icons-material/Restaurant";
 import LockIcon from "@mui/icons-material/Lock";
 import LockOpenIcon from "@mui/icons-material/LockOpen";
 import ExitToAppIcon from "@mui/icons-material/ExitToApp";
-import ChatIcon from "@mui/icons-material/Chat"; // <-- Chat imports
+import ChatIcon from "@mui/icons-material/Chat";
 import CampaignIcon from "@mui/icons-material/Campaign";
 import { SmActionModal, type GroupForModal } from "../components/SmActionModal";
-import { ChatWindow } from "../components/ChatWindow"; // <-- Chat Component
+import { ChatWindow } from "../components/ChatWindow";
 
 interface StationData {
   id: string;
@@ -65,7 +64,6 @@ interface AnnouncementData {
   targets?: string[];
 }
 
-// --- NEW CHAT INTERFACE ---
 interface ChatData {
   id: string;
   groupName: string;
@@ -84,12 +82,6 @@ export const SmDashboard: React.FC = () => {
   const [page, setPage] = useState(1);
   const itemsPerPage = 10;
 
-  // Notification State (Existing)
-  const [notifyOpen, setNotifyOpen] = useState(false);
-  const [latestMsg, setLatestMsg] = useState("");
-  const prevAnnounceId = useRef<string | null>(null);
-  const isFirstLoad = useRef(true);
-
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -102,7 +94,6 @@ export const SmDashboard: React.FC = () => {
     null
   );
 
-  // --- NEW CHAT STATE ---
   const [activeChats, setActiveChats] = useState<ChatData[]>([]);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
 
@@ -123,7 +114,7 @@ export const SmDashboard: React.FC = () => {
     check();
   }, [currentUser]);
 
-  // Fetch Announcements (Existing)
+  // Fetch Announcements
   useEffect(() => {
     const qAnnounce = query(
       collection(db, "announcements"),
@@ -145,26 +136,7 @@ export const SmDashboard: React.FC = () => {
     return () => unsub();
   }, [stationId]);
 
-  // Detect new announcements (Existing)
-  useEffect(() => {
-    if (announcements.length > 0) {
-      const latest = announcements[0];
-      if (isFirstLoad.current) {
-        prevAnnounceId.current = latest.id;
-        isFirstLoad.current = false;
-        return;
-      }
-      if (prevAnnounceId.current && prevAnnounceId.current !== latest.id) {
-        setLatestMsg(latest.message);
-        setNotifyOpen(true);
-      }
-      prevAnnounceId.current = latest.id;
-    } else {
-      isFirstLoad.current = false;
-    }
-  }, [announcements]);
-
-  // Listen to Station Data (Existing)
+  // Listen to Station Data
   useEffect(() => {
     if (!stationId) return;
     const unsub = onSnapshot(
@@ -175,7 +147,7 @@ export const SmDashboard: React.FC = () => {
     return () => unsub();
   }, [stationId]);
 
-  // Listen to Queues (Existing)
+  // Listen to Queues
   useEffect(() => {
     if (!stationId) return;
     const q = query(
@@ -192,10 +164,9 @@ export const SmDashboard: React.FC = () => {
     return () => unsub();
   }, [stationId]);
 
-  // --- NEW: Listen to Active Chats ---
+  // Listen to Active Chats
   useEffect(() => {
     if (!stationId) return;
-    // Find chats for this station that are ACTIVE (Traveling group)
     const qChats = query(
       collection(db, "chats"),
       where("stationId", "==", stationId),
@@ -211,7 +182,7 @@ export const SmDashboard: React.FC = () => {
     return () => unsubChats();
   }, [stationId]);
 
-  // Lunch finalize logic (Existing)
+  // Lunch finalize logic
   useEffect(() => {
     if (!stationData) return;
     if (stationData.status !== "LUNCH_SOON") {
@@ -437,7 +408,7 @@ export const SmDashboard: React.FC = () => {
         </Box>
       </Paper>
 
-      {/* --- NEW: ACTIVE CHATS LIST --- */}
+      {/* ACTIVE CHATS LIST */}
       {activeChats.length > 0 && (
         <Paper
           sx={{ p: 2, mb: 3, bgcolor: "#e0f7fa", border: "1px solid #4dd0e1" }}
@@ -477,7 +448,6 @@ export const SmDashboard: React.FC = () => {
           </List>
         </Paper>
       )}
-      {/* ----------------------------- */}
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
@@ -576,11 +546,10 @@ export const SmDashboard: React.FC = () => {
         </Paper>
       </Box>
 
-      {/* --- CHAT WINDOW --- */}
+      {/* CHAT WINDOW */}
       {selectedChatId && (
         <ChatWindow
           chatId={selectedChatId}
-          // FIX: Find the group name from our activeChats list
           title={`Chat with ${
             activeChats.find((c) => c.id === selectedChatId)?.groupName ||
             "Group"
@@ -589,7 +558,7 @@ export const SmDashboard: React.FC = () => {
         />
       )}
 
-      {/* === SM ANNOUNCEMENTS === */}
+      {/* SM ANNOUNCEMENTS */}
       <Box sx={{ mt: 4 }}>
         <Typography
           variant="h6"
@@ -654,24 +623,6 @@ export const SmDashboard: React.FC = () => {
           )}
         </Paper>
       </Box>
-
-      {/* Notification Snackbar */}
-      <Snackbar
-        open={notifyOpen}
-        autoHideDuration={5000}
-        onClose={() => setNotifyOpen(false)}
-        anchorOrigin={{ vertical: "top", horizontal: "center" }}
-      >
-        <Alert
-          onClose={() => setNotifyOpen(false)}
-          severity="info"
-          variant="filled"
-          icon={<CampaignIcon />}
-          sx={{ width: "100%" }}
-        >
-          New Announcement: {latestMsg}
-        </Alert>
-      </Snackbar>
 
       <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)}>
         <DialogTitle>
