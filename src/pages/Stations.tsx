@@ -40,7 +40,13 @@ export const StationsPage: FC = () => {
         );
         if (!res.ok) throw new Error("Failed to load");
         const data = await res.json();
-        setStations(data.stations);
+        const sorted = data.stations.sort((a: StationData, b: StationData) => {
+          if (a.type === "manned" && b.type === "unmanned") return -1;
+          if (a.type === "unmanned" && b.type === "manned") return 1;
+          return 0; // equal
+        });
+
+        setStations(sorted);
       } catch (err) {
         console.error(err);
         setError("Could not load stations. Please check your connection.");
