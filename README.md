@@ -208,7 +208,7 @@ firebase deploy
 
 **Bootstrap the First Admin:**
 
-1. Create user in Authentication (e.g., `admin@hcibs.org`)
+1. Create user in Authentication (e.g., `admin@hcibso.app`)
 2. Copy User UID
 3. Create `users` collection → document ID = UID
 4. Add field: `role: "ADMIN"`
@@ -230,12 +230,20 @@ firebase deploy
 * **Emergency Stop:** Use **STOP GAME** in Admin Controls
 * **Failed Uploads:** Check Submission Gallery; OGLs may re-upload
 
+### 4. Function Warm-up Procedures
+
+To mitigate latency associated with serverless cold starts, two utility scripts are provided. These should be utilized to ensure system responsiveness during the event.
+
+* **Manual Warm-up:** Execute node scripts/warmup.mjs approximately 10 minutes before the event commences.
+* **Continuous Warm-up:** Execute node scripts/keep-warm.mjs in a background terminal for the duration of the event. This script issues periodic requests to keep function instances active. Terminate this process upon event conclusion (Ctrl + C).
+
 ---
 
 ## Firestore Structure (High-Level)
 
 ```
 announcements/
+chats/
 game/
 groups/
 houses/
