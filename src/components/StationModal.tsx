@@ -35,7 +35,7 @@ const style = {
 export interface StationData {
   id?: string;
   name: string;
-  type: "manned" | "unmanned";
+  type: "manned" | "unmanned" | "ending_location";
   description: string;
   location: string;
   points?: number; // ADDED
@@ -58,7 +58,7 @@ export const StationModal: FC<StationModalProps> = ({
   initialData,
 }) => {
   const [name, setName] = useState("");
-  const [type, setType] = useState<"manned" | "unmanned" | "">("");
+  const [type, setType] = useState<"manned" | "unmanned" | "ending_location" | "">("");
   const [points, setPoints] = useState(50); // Default 50
   const [location, setLocation] = useState("");
   const [description, setDescription] = useState("");
@@ -150,11 +150,12 @@ export const StationModal: FC<StationModalProps> = ({
             value={type}
             label="Type"
             onChange={(e) =>
-              setType(e.target.value as "manned" | "unmanned" | "")
+              setType(e.target.value as "manned" | "unmanned" | "ending_location" | "")
             }
           >
             <MenuItem value="manned">Manned (Has SM)</MenuItem>
             <MenuItem value="unmanned">Unmanned (Task only)</MenuItem>
+            <MenuItem value="ending_location">Ending Location</MenuItem>
           </Select>
         </FormControl>
         <TextField

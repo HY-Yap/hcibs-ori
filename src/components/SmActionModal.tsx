@@ -55,6 +55,7 @@ export const SmActionModal: FC<Props> = ({
   const [adminNote, setAdminNote] = useState("");
   const [sideQuests, setSideQuests] = useState<SideQuest[]>([]);
   const [selectedQuestId, setSelectedQuestId] = useState("");
+  const [sideQuestNote, setSideQuestNote] = useState(""); // ADDED
 
   useEffect(() => {
     if (open) {
@@ -100,7 +101,7 @@ export const SmActionModal: FC<Props> = ({
             points: Number(stationPoints),
             type: "STATION",
             id: stationId,
-            adminNote,
+            textAnswer: adminNote, // Changed to textAnswer to ensure backend saves it
           })
         );
       }
@@ -115,6 +116,7 @@ export const SmActionModal: FC<Props> = ({
               points: quest.points,
               type: "SIDE_QUEST",
               id: selectedQuestId,
+              textAnswer: sideQuestNote, // Changed to textAnswer to ensure backend saves it
             })
           );
         }
@@ -128,6 +130,7 @@ export const SmActionModal: FC<Props> = ({
       setStationPoints("");
       setAdminNote("");
       setSelectedQuestId("");
+      setSideQuestNote(""); // ADDED
       setTab(0);
     } catch (err: any) {
       setError(err.message || "Failed to submit score.");
@@ -209,6 +212,16 @@ export const SmActionModal: FC<Props> = ({
               ))}
             </Select>
           </FormControl>
+
+          {/* ADDED: Side Quest Note Field */}
+          <TextField
+            label="Admin Note (Optional)"
+            fullWidth
+            multiline
+            rows={2}
+            value={sideQuestNote}
+            onChange={(e) => setSideQuestNote(e.target.value)}
+          />
         </Box>
 
         {/* SUMMARY: Show them if they are about to submit BOTH */}

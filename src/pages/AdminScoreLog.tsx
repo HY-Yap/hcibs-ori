@@ -65,10 +65,15 @@ export const AdminScoreLog: FC = () => {
           // Side Quests use 'sourceId', Stations use 'stationId'
           const finalSourceId = data.sourceId || data.stationId || "unknown";
 
+          // Check for note in 'textAnswer', 'note', 'adminNote', or 'sideQuestNote' fields
+          // Priority: textAnswer (OGL) -> note (Generic) -> adminNote (SM) -> sideQuestNote
+          const finalNote = data.textAnswer || data.note || data.adminNote || data.sideQuestNote || "";
+
           return {
             id: d.id,
             ...data,
             sourceId: finalSourceId,
+            note: finalNote, // Explicitly map the note
           } as LogData;
         });
         setLogs(logList);

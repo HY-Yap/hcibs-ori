@@ -42,15 +42,65 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 
-type StationType = "manned" | "unmanned" | "ALL";
+type StationType = "manned" | "unmanned" | "ending_location" | "ALL";
 type StationStatus =
   | "OPEN"
   | "LUNCH_SOON"
   | "CLOSED_LUNCH"
   | "CLOSED_PERMANENTLY"
   | "ALL";
-type SortableColumn = "name" | "type" | "location" | "status" | "points"; // ADDED points
+type SortableColumn = "name" | "type" | "location" | "status" | "points" | "area"; // ADDED area
 type Order = "asc" | "desc";
+
+// Define Area Config for sorting
+const AREA_ORDER = [
+  "Central-West Area",
+  "Circle Line Area",
+  "CBD Area",
+  "Others",
+];
+
+const AREA_CONFIG: Record<string, string[]> = {
+  "Central-West Area": [
+    "Holland Village",
+    "Bishan",
+    "Beauty World",
+    "King Albert Park",
+    "Botanic Gardens",
+    "Toa Payoh",
+  ],
+  "Circle Line Area": [
+    "Paya Lebar",
+    "Stadium",
+    "Promenade",
+    "Serangoon",
+    "Esplanade",
+  ],
+  "CBD Area": [
+    "Bugis",
+    "Clarke Quay",
+    "Fort Canning",
+    "City Hall",
+    "Raffles Place",
+    "National Library",
+  ],
+  Others: ["Marina Barrage"],
+};
+
+// ADDED: Area Colors for visual distinction
+const AREA_COLORS: Record<string, string> = {
+  "Central-West Area": "#e3f2fd", // Light Blue
+  "Circle Line Area": "#f3e5f5", // Light Purple
+  "CBD Area": "#e8f5e9", // Light Green
+  Others: "#fff9c4", // Light Yellow
+};
+
+const getArea = (stationName: string) => {
+  for (const [area, stations] of Object.entries(AREA_CONFIG)) {
+    if (stations.includes(stationName)) return area;
+  }
+  return "Others";
+};
 
 export const AdminStationManagement: React.FC = () => {
   const [stations, setStations] = useState<StationData[]>([]);
@@ -69,7 +119,7 @@ export const AdminStationManagement: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState<StationType>("ALL");
   const [filterStatus, setFilterStatus] = useState<StationStatus>("ALL");
-  const [orderBy, setOrderBy] = useState<SortableColumn>("name");
+  const [orderBy, setOrderBy] = useState<SortableColumn>("area"); // Default sort by area
   const [order, setOrder] = useState<Order>("asc");
 
   useEffect(() => {
@@ -110,6 +160,29 @@ export const AdminStationManagement: React.FC = () => {
         return true;
       })
       .sort((a, b) => {
+        // ADDED: Handle area sorting (Default)
+        if (orderBy === "area") {
+          const areaA = getArea(a.name);
+          const areaB = getArea(b.name);
+          const indexA = AREA_ORDER.indexOf(areaA);
+          const indexB = AREA_ORDER.indexOf(areaB);
+          
+          // Handle unknown areas
+          const safeIndexA = indexA === -1 ? 999 : indexA;
+          const safeIndexB = indexB === -1 ? 999 : indexB;
+
+          if (safeIndexA !== safeIndexB) {
+            return order === "asc" ? safeIndexA - safeIndexB : safeIndexB - safeIndexA;
+          }
+
+          // Secondary sort: Type (Manned first)
+          if (a.type === "manned" && b.type !== "manned") return -1;
+          if (a.type !== "manned" && b.type === "manned") return 1;
+
+          // Tertiary sort by name if areas match
+          return a.name.localeCompare(b.name);
+        }
+
         // ADDED: Handle points sorting
         if (orderBy === "points") {
           const pointsA = a.points || 0;
@@ -225,6 +298,7 @@ export const AdminStationManagement: React.FC = () => {
                 <MenuItem value="ALL">All Types</MenuItem>
                 <MenuItem value="manned">Manned</MenuItem>
                 <MenuItem value="unmanned">Unmanned</MenuItem>
+                <MenuItem value="ending_location">Ending Location</MenuItem>
               </Select>
             </FormControl>
           </Box>
@@ -258,6 +332,15 @@ export const AdminStationManagement: React.FC = () => {
         <Table>
           <TableHead>
             <TableRow sx={{ backgroundColor: "#f4f4f4" }}>
+              <TableCell>
+                <TableSortLabel
+                  active={orderBy === "area"}
+                  direction={orderBy === "area" ? order : "asc"}
+                  onClick={() => handleRequestSort("area")}
+                >
+                  Area
+                </TableSortLabel>
+              </TableCell>
               <TableCell>
                 <TableSortLabel
                   active={orderBy === "name"}
@@ -322,13 +405,48 @@ export const AdminStationManagement: React.FC = () => {
                 </TableCell>
               </TableRow>
             ) : (
-              filteredAndSortedStations.map((s) => (
-                <TableRow key={s.id}>
+              filteredAndSortedStations.map((s, index) => {
+                const areaName = getArea(s.name);
+                const areaColor = AREA_COLORS[areaName] || "#f5f5f5";
+                
+                // Determine if we need a separator (new area group)
+                const prevArea = index > 0 ? getArea(filteredAndSortedStations[index - 1].name) : null;
+                const isNewArea = index > 0 && areaName !== prevArea && orderBy === "area";
+
+                return (
+                <TableRow 
+                  key={s.id}
+                  sx={{ 
+                    borderTop: isNewArea ? "3px solid #e0e0e0" : undefined 
+                  }}
+                >
+                  <TableCell>
+                    <Chip 
+                      label={areaName} 
+                      size="small" 
+                      sx={{ 
+                        fontSize: '0.7rem',
+                        bgcolor: areaColor,
+                        fontWeight: 'bold',
+                        border: '1px solid rgba(0,0,0,0.05)'
+                      }}
+                    />
+                  </TableCell>
                   <TableCell sx={{ fontWeight: "bold" }}>{s.name}</TableCell>
                   <TableCell>
                     <Chip
-                      label={s.type.toUpperCase()}
-                      color={s.type === "manned" ? "primary" : "default"}
+                      label={
+                        (s.type as string) === "ending_location"
+                          ? "Ending Location"
+                          : s.type.charAt(0).toUpperCase() + s.type.slice(1)
+                      }
+                      color={
+                        s.type === "manned"
+                          ? "primary"
+                          : (s.type as string) === "ending_location"
+                          ? "secondary"
+                          : "default"
+                      }
                       size="small"
                     />
                   </TableCell>
@@ -355,7 +473,7 @@ export const AdminStationManagement: React.FC = () => {
                     </IconButton>
                   </TableCell>
                 </TableRow>
-              ))
+              )})
             )}
           </TableBody>
         </Table>

@@ -85,12 +85,17 @@ const AREA_CONFIG: Record<
       "National Library",
     ],
   },
+  Others: {
+    color: "#fff9c4", // Light Yellow
+    prerequisites: [],
+    stations: ["Marina Barrage"],
+  },
 };
 
 interface StationData {
   id: string;
   name: string;
-  type: "manned" | "unmanned";
+  type: "manned" | "unmanned" | "ending_location";
   status: "OPEN" | "CLOSED_LUNCH" | "CLOSED_PERMANENTLY";
   travelingCount: number;
   arrivedCount: number;
@@ -232,9 +237,25 @@ export const OglJourney: FC = () => {
   useEffect(() => {
     const q = query(collection(db, "stations"), orderBy("name"));
     const unsub = onSnapshot(q, (snapshot) => {
-      setStations(
-        snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as StationData))
+      const fetchedStations = snapshot.docs.map(
+        (d) => ({ id: d.id, ...d.data() } as StationData)
       );
+
+      // Inject Marina Barrage if not present (since it's not a real station in DB)
+      if (!fetchedStations.find((s) => s.name === "Marina Barrage")) {
+        fetchedStations.push({
+          id: "marina_barrage", // Virtual ID
+          name: "Marina Barrage",
+          type: "ending_location",
+          status: "OPEN",
+          travelingCount: 0,
+          arrivedCount: 0,
+          description: "Dinner Location",
+          points: 0,
+        });
+      }
+
+      setStations(fetchedStations);
     });
     return () => unsub();
   }, []);
@@ -408,6 +429,38 @@ export const OglJourney: FC = () => {
     const currentStation = stations.find(
       (s) => s.id === groupData.destinationId
     );
+
+    // Special handling for Marina Barrage
+    if (currentStation?.name === "Marina Barrage") {
+      return (
+        <Box sx={{ maxWidth: 600, mx: "auto", textAlign: "center", p: 2 }}>
+          <LocationOnIcon sx={{ fontSize: 80, color: "warning.main", mb: 2 }} />
+          <Typography variant="h4" gutterBottom>
+            You are at Marina Barrage
+          </Typography>
+          <Paper sx={{ p: 3, mt: 3, bgcolor: "#fff9c4" }}>
+            <Typography variant="h6" gutterBottom>
+              DINNER LOCATION
+            </Typography>
+            <Typography>
+              Please patiently wait for other groups to arrive and for dinner to
+              start.
+            </Typography>
+          </Paper>
+          <Button
+            variant="outlined"
+            color="error"
+            fullWidth
+            sx={{ mt: 4 }}
+            disabled={actionLoading}
+            onClick={handleDepart}
+          >
+            LEAVE
+          </Button>
+        </Box>
+      );
+    }
+
     const isManned = currentStation?.type === "manned";
 
     return (
@@ -701,6 +754,7 @@ export const OglJourney: FC = () => {
                 if (areaName === "Central-West Area") iconBgColor = "#2196f3"; // Blue
                 if (areaName === "Circle Line Area") iconBgColor = "#9c27b0"; // Purple
                 if (areaName === "CBD Area") iconBgColor = "#4caf50"; // Green
+                if (areaName === "Others") iconBgColor = "#fbc02d"; // Yellow/Orange
 
                 if (isCompleted) {
                   isDisabled = true;
@@ -772,7 +826,7 @@ export const OglJourney: FC = () => {
                                 color="text.primary"
                                 sx={{ fontWeight: "bold", mr: 1 }}
                               >
-                                {s.type.toUpperCase()}
+                                {s.type.replace("_", " ").toUpperCase()}
                               </Typography>
                               <Typography
                                 component="span"
