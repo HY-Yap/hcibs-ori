@@ -61,6 +61,46 @@ interface HouseData {
   color?: string;
 }
 
+// --- CONFIGURATION (Mirrors Frontend) ---
+const AREA_CONFIG: Record<string, { prerequisites: string[]; stations: string[] }> = {
+  "Central-West Area": {
+    prerequisites: ["Holland Village", "Bishan"],
+    stations: [
+      "Holland Village",
+      "Bishan",
+      "Beauty World",
+      "King Albert Park",
+      "Botanic Gardens",
+      "Toa Payoh",
+    ],
+  },
+  "Circle Line Area": {
+    prerequisites: ["Paya Lebar", "Stadium"],
+    stations: [
+      "Paya Lebar",
+      "Stadium",
+      "Promenade",
+      "Serangoon",
+      "Esplanade",
+    ],
+  },
+  "CBD Area": {
+    prerequisites: ["Bugis", "Clarke Quay"],
+    stations: [
+      "Bugis",
+      "Clarke Quay",
+      "Fort Canning",
+      "City Hall",
+      "Raffles Place",
+      "National Library",
+    ],
+  },
+  Others: {
+    prerequisites: [],
+    stations: ["Marina Barrage"],
+  },
+};
+
 // --- HELPER: SEND PUSH TO SPECIFIC STATION MASTER ---
 const notifyStationMaster = async (stationId: string, message: string) => {
   console.log(`🔔 notifyStationMaster called for Station: ${stationId}`);
@@ -559,6 +599,9 @@ export const submitScore = onCall(
     try {
       const batch = admin.firestore().batch();
       const groupRef = admin.firestore().collection("groups").doc(groupId);
+      const groupDoc = await groupRef.get();
+      const groupData = groupDoc.data();
+
       let totalPointsToAdd = 0;
       const updateData: any = {};
 
@@ -569,6 +612,7 @@ export const submitScore = onCall(
       // --- HANDLE POINTS LOGIC: MANNED vs UNMANNED ---
       let sPoints = 0;
       let sqPoints = 0;
+      let isPending = false;
 
       if (sId) {
         const stationDoc = await admin
@@ -577,14 +621,86 @@ export const submitScore = onCall(
           .doc(sId)
           .get();
         const stationData = stationDoc.data();
+        const stationName = stationData?.name;
         const isManned = stationData?.type === "manned";
         
+        // 1. Determine Area and Prerequisites
+        let areaName = "Others";
+        let prereqNames: string[] = [];
+        for (const [area, config] of Object.entries(AREA_CONFIG)) {
+          if (config.stations.includes(stationName)) {
+            areaName = area;
+            prereqNames = config.prerequisites;
+            break;
+          }
+        }
+
+        // 2. Check if Prerequisites are met
+        // We need IDs of prereq stations. Querying by name.
+        let arePrereqsMet = true;
+        if (prereqNames.length > 0) {
+          const prereqSnaps = await admin.firestore().collection("stations").where("name", "in", prereqNames).get();
+          const prereqIds = prereqSnaps.docs.map(d => d.id);
+          const completedIds = new Set(groupData?.completedStations || []);
+          // Add current station to completed set for the check (if it's one of them)
+          completedIds.add(sId);
+          
+          arePrereqsMet = prereqIds.every(pid => completedIds.has(pid));
+        }
+
+        // 3. Calculate Points & Handle Pending Logic
         if (isManned && (callerRole === "SM" || callerRole === "ADMIN")) {
-          // For manned stations: SM/ADMIN can set custom points
+          // Manned stations always get points immediately
           sPoints = points || 0;
+          
+          // If this manned station completes the prereqs, release pending points!
+          if (arePrereqsMet) {
+            const pendingStations = groupData?.pendingStations || [];
+            if (pendingStations.length > 0) {
+              // Fetch all pending stations to check their area
+              // Optimization: We could store area in pendingStations, but fetching is safer
+              // Filter pending stations that belong to THIS area
+              const pendingDocs = await Promise.all(pendingStations.map((pid: string) => admin.firestore().collection("stations").doc(pid).get()));
+              
+              for (const pDoc of pendingDocs) {
+                if (!pDoc.exists) continue;
+                const pData = pDoc.data();
+                // Check if this pending station is in the current area
+                if (AREA_CONFIG[areaName]?.stations.includes(pData?.name)) {
+                  const releasedPoints = pData?.points || 50;
+                  totalPointsToAdd += releasedPoints;
+                  
+                  // Log the release
+                  const releaseLogRef = admin.firestore().collection("scoreLog").doc();
+                  batch.set(releaseLogRef, {
+                    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                    groupId,
+                    stationId: pDoc.id,
+                    sourceId: pDoc.id,
+                    points: releasedPoints,
+                    type: "STATION",
+                    awardedBy: "SYSTEM",
+                    awardedByRole: "SYSTEM",
+                    note: `Points released upon completion of ${stationName}`,
+                  });
+
+                  // Remove from pending
+                  updateData.pendingStations = admin.firestore.FieldValue.arrayRemove(pDoc.id);
+                }
+              }
+            }
+          }
+
         } else {
-          // For unmanned stations: Always use database points
-          sPoints = stationData?.points || 50;
+          // Unmanned Station
+          if (arePrereqsMet) {
+            sPoints = stationData?.points || 50;
+          } else {
+            // Prereqs NOT met -> Pending
+            sPoints = 0;
+            isPending = true;
+            updateData.pendingStations = admin.firestore.FieldValue.arrayUnion(sId);
+          }
         }
       }
 
@@ -608,7 +724,7 @@ export const submitScore = onCall(
       // ------------------------------------------------------------
 
       // 1. HANDLE STATION
-      if (sPoints > 0 && sId) {
+      if (sId) { // Always process if sId exists, even if points are 0 (for pending)
         totalPointsToAdd += sPoints;
         updateData.completedStations =
           admin.firestore.FieldValue.arrayUnion(sId);
@@ -627,11 +743,11 @@ export const submitScore = onCall(
           groupId,
           stationId: sId,
           sourceId: sId,
-          points: sPoints, // Use calculated points (custom for manned, fixed for unmanned)
+          points: sPoints, 
           type: "STATION",
           awardedBy: request.auth.uid,
           awardedByRole: callerRole,
-          note: adminNote || "",
+          note: isPending ? "Pending Prerequisites" : (adminNote || ""),
           submissionUrl: submissionUrl || null,
           textAnswer: textAnswer || null,
         });
@@ -669,7 +785,7 @@ export const submitScore = onCall(
       }
 
       await batch.commit();
-      return { success: true, message: "Scores submitted." };
+      return { success: true, message: isPending ? "Station completed. Points pending prerequisites." : "Scores submitted." };
     } catch (error: any) {
       console.error("Score error:", error);
       throw new HttpsError("internal", error.message);

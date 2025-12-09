@@ -117,6 +117,7 @@ export const OglJourney: FC = () => {
   const [actionLoading, setActionLoading] = useState(false);
 
   const [travelDialogOpen, setTravelDialogOpen] = useState(false);
+  const [warningDialogOpen, setWarningDialogOpen] = useState(false); // ADDED
   const [selectedStation, setSelectedStation] = useState<StationData | null>(
     null
   );
@@ -297,6 +298,7 @@ export const OglJourney: FC = () => {
       eta,
     });
     setTravelDialogOpen(false);
+    setWarningDialogOpen(false); // Close warning if open
     setEta("");
     setSelectedStation(null);
   };
@@ -430,6 +432,24 @@ export const OglJourney: FC = () => {
       (s) => s.id === groupData.destinationId
     );
 
+    // Check if prerequisites are met for current station
+    let isPrereqMissing = false;
+    if (currentStation) {
+      const areaKey = Object.keys(AREA_CONFIG).find((key) =>
+        AREA_CONFIG[key].stations.includes(currentStation.name)
+      );
+      if (areaKey) {
+        const config = AREA_CONFIG[areaKey];
+        const prereqStationIds = stations
+          .filter((s) => config.prerequisites.includes(s.name))
+          .map((s) => s.id);
+        const completedIds = groupData?.completedStations || [];
+        isPrereqMissing = !prereqStationIds.every((id) =>
+          completedIds.includes(id)
+        );
+      }
+    }
+
     // Special handling for Marina Barrage
     if (currentStation?.name === "Marina Barrage") {
       return (
@@ -502,6 +522,16 @@ export const OglJourney: FC = () => {
               >
                 REWARD: {currentStation?.points || 0} POINTS
               </Typography>
+              {/* ADDED: Warning Text */}
+              {isPrereqMissing && (
+                <Typography
+                  variant="caption"
+                  color="error"
+                  sx={{ display: "block", mt: 1, fontWeight: "bold" }}
+                >
+                  Points will not be given until the corresponding area's manned stations have been completed.
+                </Typography>
+              )}
             </Box>
             <Typography
               paragraph
@@ -740,15 +770,6 @@ export const OglJourney: FC = () => {
                   | "warning" = "default";
                 let icon = <LocationOnIcon />;
                 
-                // Default avatar color is now the section color instead of primary.main
-                // We use a darker shade or the color itself depending on visibility
-                // Since config.color is very light (e.g. #e3f2fd), we might want a darker version for the icon background
-                // or just use it. Let's try using a mapping or just hardcode darker variants for better contrast if needed.
-                // For now, let's stick to the requested section color, but maybe darken it slightly for the icon to be visible?
-                // Actually, the previous code used 'primary.main' etc.
-                // Let's map the area names to a darker "icon" color to ensure white icons show up, 
-                // or just use the light color and change icon color to black.
-                
                 // Let's define specific icon background colors based on the area to ensure contrast
                 let iconBgColor = "primary.main"; // Fallback
                 if (areaName === "Central-West Area") iconBgColor = "#2196f3"; // Blue
@@ -767,12 +788,6 @@ export const OglJourney: FC = () => {
                   statusLabel = s.status.replace("_", " ");
                   statusColor = "error";
                   iconBgColor = "error.main";
-                } else if (isProgressionLocked) {
-                  isDisabled = true;
-                  statusLabel = "Locked";
-                  statusColor = "default";
-                  icon = <LockIcon />;
-                  iconBgColor = "action.disabled";
                 } else if (isStationFull) {
                   isDisabled = true;
                   statusLabel = "Full";
@@ -783,6 +798,7 @@ export const OglJourney: FC = () => {
                   statusLabel = "Area Full";
                   statusColor = "warning";
                 }
+                // REMOVED: isProgressionLocked disabling logic. Now we allow it but warn.
 
                 return (
                   <React.Fragment key={s.id}>
@@ -852,9 +868,14 @@ export const OglJourney: FC = () => {
                           <Button
                             variant="contained"
                             size="small"
+                            color={isProgressionLocked ? "warning" : "primary"} // Visual cue
                             onClick={() => {
                               setSelectedStation(s);
-                              setTravelDialogOpen(true);
+                              if (isProgressionLocked) {
+                                setWarningDialogOpen(true);
+                              } else {
+                                setTravelDialogOpen(true);
+                              }
                             }}
                           >
                             GO
@@ -975,6 +996,33 @@ export const OglJourney: FC = () => {
           </>
         )}
       </List>
+      
+      {/* ADDED: Warning Dialog */}
+      <Dialog
+        open={warningDialogOpen}
+        onClose={() => setWarningDialogOpen(false)}
+      >
+        <DialogTitle>Warning</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Points will not be given until the corresponding area's manned stations have been completed. Are you sure you would like to proceed?
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setWarningDialogOpen(false)}>Cancel</Button>
+          <Button 
+            onClick={() => {
+              setWarningDialogOpen(false); // Close warning first
+              setTravelDialogOpen(true);   // Then open ETA dialog
+            }} 
+            color="warning" 
+            autoFocus
+          >
+            OK
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <Dialog
         open={travelDialogOpen}
         onClose={() => setTravelDialogOpen(false)}
