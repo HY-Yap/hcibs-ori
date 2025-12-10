@@ -40,8 +40,12 @@ export interface SideQuestData {
   name: string;
   description: string;
   points: number;
-  submissionType: "photo" | "video" | "none";
+  submissionType: "none" | "photo" | "video";
   isSmManaged: boolean;
+  // ADDED
+  hasSecondStage?: boolean;
+  secondSubmissionType?: "none" | "photo" | "video";
+  secondDescription?: string;
 }
 
 interface Props {
@@ -60,10 +64,12 @@ export const SideQuestModal: FC<Props> = ({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [points, setPoints] = useState(50);
-  const [submissionType, setSubmissionType] = useState<
-    "photo" | "video" | "none"
-  >("none");
+  const [submissionType, setSubmissionType] = useState<"none" | "photo" | "video">("none");
   const [isSmManaged, setIsSmManaged] = useState(false);
+  // ADDED
+  const [hasSecondStage, setHasSecondStage] = useState(false);
+  const [secondSubmissionType, setSecondSubmissionType] = useState<"none" | "photo" | "video">("none");
+  const [secondDescription, setSecondDescription] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -76,18 +82,26 @@ export const SideQuestModal: FC<Props> = ({
       setPoints(initialData.points);
       setSubmissionType(initialData.submissionType);
       setIsSmManaged(initialData.isSmManaged);
+      // ADDED
+      setHasSecondStage(initialData.hasSecondStage || false);
+      setSecondSubmissionType(initialData.secondSubmissionType || "none");
+      setSecondDescription(initialData.secondDescription || "");
     } else if (open && !initialData) {
       // Create Mode: Reset the form
       setName("");
       setDescription("");
-      setPoints(50);
+      setPoints(0);
       setSubmissionType("none");
       setIsSmManaged(false);
+      // ADDED
+      setHasSecondStage(false);
+      setSecondSubmissionType("none");
+      setSecondDescription("");
     }
     setError(null);
   }, [open, initialData]);
 
-  const handleSubmit = async () => {
+  const handleSave = async () => {
     setLoading(true);
     setError(null);
     try {
@@ -104,6 +118,9 @@ export const SideQuestModal: FC<Props> = ({
           points,
           submissionType,
           isSmManaged,
+          hasSecondStage,
+          secondSubmissionType,
+          secondDescription,
         });
       } else {
         // Create new
@@ -114,6 +131,9 @@ export const SideQuestModal: FC<Props> = ({
           points,
           submissionType,
           isSmManaged,
+          hasSecondStage,
+          secondSubmissionType,
+          secondDescription,
         });
       }
 
@@ -156,9 +176,8 @@ export const SideQuestModal: FC<Props> = ({
         />
 
         <FormControl fullWidth>
-          <InputLabel id="sub-type-label">Submission Type</InputLabel>
+          <InputLabel>Submission Type</InputLabel>
           <Select
-            labelId="sub-type-label"
             value={submissionType}
             label="Submission Type"
             onChange={(e) => setSubmissionType(e.target.value as any)}
@@ -168,6 +187,44 @@ export const SideQuestModal: FC<Props> = ({
             <MenuItem value="video">Video Upload</MenuItem>
           </Select>
         </FormControl>
+
+        {/* ADDED: 2nd Stage Configuration */}
+        <FormControl fullWidth>
+          <InputLabel>2nd Stage</InputLabel>
+          <Select
+            value={hasSecondStage ? "yes" : "no"}
+            label="2nd Stage"
+            onChange={(e) => setHasSecondStage(e.target.value === "yes")}
+          >
+            <MenuItem value="no">No</MenuItem>
+            <MenuItem value="yes">Yes</MenuItem>
+          </Select>
+        </FormControl>
+
+        {hasSecondStage && (
+          <>
+            <FormControl fullWidth>
+              <InputLabel>2nd Submission Type</InputLabel>
+              <Select
+                value={secondSubmissionType}
+                label="2nd Submission Type"
+                onChange={(e) => setSecondSubmissionType(e.target.value as any)}
+              >
+                <MenuItem value="none">None (Honor System)</MenuItem>
+                <MenuItem value="photo">Photo Upload</MenuItem>
+                <MenuItem value="video">Video Upload</MenuItem>
+              </Select>
+            </FormControl>
+            <TextField
+              label="2nd Description"
+              fullWidth
+              multiline
+              rows={3}
+              value={secondDescription}
+              onChange={(e) => setSecondDescription(e.target.value)}
+            />
+          </>
+        )}
 
         <FormControlLabel
           control={
@@ -184,7 +241,7 @@ export const SideQuestModal: FC<Props> = ({
           variant="contained"
           fullWidth
           disabled={loading || !name}
-          onClick={handleSubmit}
+          onClick={handleSave}
         >
           {loading ? (
             <CircularProgress size={24} />

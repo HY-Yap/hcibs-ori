@@ -45,52 +45,18 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import LockIcon from "@mui/icons-material/Lock";
 import ChatIcon from "@mui/icons-material/Chat";
 
-// --- CONFIGURATION ---
-const AREA_CONFIG: Record<
-  string,
-  { color: string; prerequisites: string[]; stations: string[] }
-> = {
-  "Central-West Area": {
-    color: "#e3f2fd", // Light Blue
-    prerequisites: ["Holland Village", "Bishan"],
-    stations: [
-      "Holland Village",
-      "Bishan",
-      "Beauty World",
-      "King Albert Park",
-      "Botanic Gardens",
-      "Toa Payoh",
-    ],
-  },
-  "Circle Line Area": {
-    color: "#f3e5f5", // Light Purple
-    prerequisites: ["Paya Lebar", "Stadium"],
-    stations: [
-      "Paya Lebar",
-      "Stadium",
-      "Promenade",
-      "Serangoon",
-      "Esplanade",
-    ],
-  },
-  "CBD Area": {
-    color: "#e8f5e9", // Light Green
-    prerequisites: ["Bugis", "Clarke Quay"],
-    stations: [
-      "Bugis",
-      "Clarke Quay",
-      "Fort Canning",
-      "City Hall",
-      "Raffles Place",
-      "National Library",
-    ],
-  },
-  Others: {
-    color: "#fff9c4", // Light Yellow
-    prerequisites: [],
-    stations: ["Marina Barrage"],
-  },
-};
+// REMOVED: AREA_CONFIG constant
+
+// ADDED: Rainbow Colors
+const RAINBOW_COLORS = [
+  "#ffcdd2", // Red
+  "#ffe0b2", // Orange
+  "#fff9c4", // Yellow
+  "#c8e6c9", // Green
+  "#bbdefb", // Blue
+  "#c5cae9", // Indigo
+  "#ce93d8", // Purple (Changed for better contrast with Red)
+];
 
 interface StationData {
   id: string;
@@ -101,12 +67,18 @@ interface StationData {
   arrivedCount: number;
   description?: string;
   points?: number;
+  // ADDED
+  hasSecondStage?: boolean;
+  secondDescription?: string;
+  area?: string; // ADDED
 }
 interface GroupData {
   name: string;
   status: "IDLE" | "TRAVELING" | "ARRIVED" | "ON_LUNCH";
   destinationId?: string;
   completedStations?: string[];
+  // ADDED
+  stageOneCompletedStations?: string[];
 }
 
 export const OglJourney: FC = () => {
@@ -304,11 +276,15 @@ export const OglJourney: FC = () => {
   };
   const handleArrive = async () => await callFunction("oglArrive");
   const handleDepart = async () => {
-    if (
-      window.confirm(
-        "Are you sure you want to skip this station without points?"
-      )
-    ) {
+    const currentStation = stations.find(
+      (s) => s.id === groupData?.destinationId
+    );
+    const isEnding = currentStation?.type === "ending_location";
+    const message = isEnding
+      ? "Are you sure you want to leave?"
+      : "Are you sure you want to skip this station without points?";
+
+    if (window.confirm(message)) {
       await callFunction("oglDepart");
     }
   };
@@ -435,19 +411,17 @@ export const OglJourney: FC = () => {
     // Check if prerequisites are met for current station
     let isPrereqMissing = false;
     if (currentStation) {
-      const areaKey = Object.keys(AREA_CONFIG).find((key) =>
-        AREA_CONFIG[key].stations.includes(currentStation.name)
+      const areaName = currentStation.area || "Others";
+      // Find all manned stations in this area
+      const areaMannedStations = stations.filter(
+        (s) => (s.area || "Others") === areaName && s.type === "manned"
       );
-      if (areaKey) {
-        const config = AREA_CONFIG[areaKey];
-        const prereqStationIds = stations
-          .filter((s) => config.prerequisites.includes(s.name))
-          .map((s) => s.id);
-        const completedIds = groupData?.completedStations || [];
-        isPrereqMissing = !prereqStationIds.every((id) =>
-          completedIds.includes(id)
-        );
-      }
+      const prereqStationIds = areaMannedStations.map((s) => s.id);
+      
+      const completedIds = groupData?.completedStations || [];
+      isPrereqMissing = !prereqStationIds.every((id) =>
+        completedIds.includes(id)
+      );
     }
 
     // Special handling for Marina Barrage
@@ -482,6 +456,11 @@ export const OglJourney: FC = () => {
     }
 
     const isManned = currentStation?.type === "manned";
+    // ADDED: Check stage
+    const hasSecondStage = currentStation?.hasSecondStage;
+    const isStageOneDone = groupData.stageOneCompletedStations?.includes(currentStation?.id || "");
+    const displayDescription = (hasSecondStage && isStageOneDone) ? currentStation?.secondDescription : currentStation?.description;
+    const buttonText = (hasSecondStage && !isStageOneDone) ? "Proceed to 2nd Stage" : "Submit & Complete Station";
 
     return (
       <Box sx={{ maxWidth: 600, mx: "auto", textAlign: "center", p: 2 }}>
@@ -537,7 +516,7 @@ export const OglJourney: FC = () => {
               paragraph
               sx={{ whiteSpace: "pre-wrap", color: "text.secondary" }}
             >
-              {currentStation?.description || "No description available."}
+              {displayDescription || "No description available."}
             </Typography>
 
             <Box
@@ -615,7 +594,7 @@ export const OglJourney: FC = () => {
                 {actionLoading ? (
                   <CircularProgress size={24} />
                 ) : (
-                  "Submit & Complete Station"
+                  buttonText
                 )}
               </Button>
             </Box>
@@ -661,19 +640,13 @@ export const OglJourney: FC = () => {
   // --- VIEW 4: IDLE ---
   // Group stations by Area
   const groupedStations: Record<string, StationData[]> = {};
-  const otherStations: StationData[] = [];
-
-  Object.keys(AREA_CONFIG).forEach((key) => (groupedStations[key] = []));
-
+  
   stations.forEach((s) => {
-    const areaKey = Object.keys(AREA_CONFIG).find((key) =>
-      AREA_CONFIG[key].stations.includes(s.name)
-    );
-    if (areaKey) {
-      groupedStations[areaKey].push(s);
-    } else {
-      otherStations.push(s);
+    const areaKey = s.area || "Others";
+    if (!groupedStations[areaKey]) {
+        groupedStations[areaKey] = [];
     }
+    groupedStations[areaKey].push(s);
   });
 
   // Sort stations within each area: Manned first
@@ -683,6 +656,13 @@ export const OglJourney: FC = () => {
       if (a.type !== "manned" && b.type === "manned") return 1;
       return 0;
     });
+  });
+
+  // Sort areas: Alphabetical, Others last
+  const allAreaKeys = Object.keys(groupedStations).sort((a, b) => {
+      if (a === "Others") return 1;
+      if (b === "Others") return -1;
+      return a.localeCompare(b);
   });
 
   return (
@@ -707,21 +687,26 @@ export const OglJourney: FC = () => {
         </Button>
       </Box>
       <List sx={{ width: "100%", bgcolor: "background.paper" }}>
-        {Object.entries(AREA_CONFIG).map(([areaName, config]) => {
+        {allAreaKeys.map((areaName, index) => {
           const areaStations = groupedStations[areaName];
           if (!areaStations || areaStations.length === 0) return null;
+
+          // Determine Color
+          const areaColor = areaName === "Others" 
+            ? "#f5f5f5" 
+            : RAINBOW_COLORS[index % RAINBOW_COLORS.length];
 
           // 1. Calculate Area Occupancy (Limit: 8)
           const areaOccupancy = areaStations.reduce(
             (sum, s) => sum + s.travelingCount + s.arrivedCount,
             0
           );
-          const isAreaFull = areaOccupancy >= 8;
+          // No limit for "Others"
+          const isAreaFull = areaName === "Others" ? false : areaOccupancy >= 8;
 
-          // 2. Check Prerequisites (Top 2 stations)
-          // We need to find the IDs of the prerequisite stations in this area
-          const prereqStationIds = stations
-            .filter((s) => config.prerequisites.includes(s.name))
+          // 2. Check Prerequisites (All manned stations in this area)
+          const prereqStationIds = areaStations
+            .filter((s) => s.type === "manned")
             .map((s) => s.id);
           const completedIds = groupData?.completedStations || [];
           const arePrereqsMet = prereqStationIds.every((id) =>
@@ -732,7 +717,7 @@ export const OglJourney: FC = () => {
             <React.Fragment key={areaName}>
               <ListSubheader
                 sx={{
-                  bgcolor: config.color,
+                  bgcolor: areaColor,
                   color: "text.primary",
                   fontWeight: "bold",
                   borderBottom: "1px solid rgba(0,0,0,0.1)",
@@ -742,7 +727,7 @@ export const OglJourney: FC = () => {
               >
                 <span>{areaName}</span>
                 <Typography variant="caption" sx={{ alignSelf: "center" }}>
-                  {areaOccupancy}/8 Groups
+                  {areaName === "Others" ? "" : `${areaOccupancy}/8 Groups`}
                 </Typography>
               </ListSubheader>
               {areaStations.map((s) => {
@@ -751,10 +736,10 @@ export const OglJourney: FC = () => {
 
                 // 3. Station Capacity (Limit: 3)
                 const stationOccupancy = s.travelingCount + s.arrivedCount;
-                const isStationFull = stationOccupancy >= 3;
+                const isStationFull = areaName === "Others" ? false : stationOccupancy >= 3;
 
                 // 4. Progression Lock
-                const isPrereqStation = config.prerequisites.includes(s.name);
+                const isPrereqStation = s.type === "manned";
                 const isProgressionLocked = !isPrereqStation && !arePrereqsMet;
 
                 // Determine Status & Disable State
@@ -770,12 +755,13 @@ export const OglJourney: FC = () => {
                   | "warning" = "default";
                 let icon = <LocationOnIcon />;
                 
-                // Let's define specific icon background colors based on the area to ensure contrast
-                let iconBgColor = "primary.main"; // Fallback
-                if (areaName === "Central-West Area") iconBgColor = "#2196f3"; // Blue
-                if (areaName === "Circle Line Area") iconBgColor = "#9c27b0"; // Purple
-                if (areaName === "CBD Area") iconBgColor = "#4caf50"; // Green
-                if (areaName === "Others") iconBgColor = "#fbc02d"; // Yellow/Orange
+                // Use area color for icon background, or grey for Others
+                let iconBgColor = areaName === "Others" ? "#bdbdbd" : areaColor;
+                // Darken the pastel color slightly for the icon background to be visible against white?
+                // Actually, the previous logic used specific colors. Let's use a slightly darker shade or just the area color.
+                // To ensure contrast, let's map the pastel to a "main" color if possible, or just use primary.
+                // For simplicity and rainbow effect, let's use the areaColor but maybe ensure the icon is visible.
+                // Since areaColor is light, we can use it as background.
 
                 if (isCompleted) {
                   isDisabled = true;
@@ -792,13 +778,11 @@ export const OglJourney: FC = () => {
                   isDisabled = true;
                   statusLabel = "Full";
                   statusColor = "warning";
-                  // Keep area color but maybe dimmed? or just keep area color
                 } else if (isAreaFull) {
                   isDisabled = true;
                   statusLabel = "Area Full";
                   statusColor = "warning";
                 }
-                // REMOVED: isProgressionLocked disabling logic. Now we allow it but warn.
 
                 return (
                   <React.Fragment key={s.id}>
@@ -827,6 +811,8 @@ export const OglJourney: FC = () => {
                           <Avatar
                             sx={{
                               bgcolor: iconBgColor,
+                              // If background is very light, make icon dark
+                              color: "rgba(0,0,0,0.7)"
                             }}
                           >
                             {icon}
@@ -844,12 +830,17 @@ export const OglJourney: FC = () => {
                               >
                                 {s.type.replace("_", " ").toUpperCase()}
                               </Typography>
+                              {/* MODIFIED: Simplified count for Ending Locations only */}
                               <Typography
                                 component="span"
                                 variant="caption"
                                 color="text.secondary"
                                 sx={{ whiteSpace: "nowrap" }}
-                              >{`(${s.travelingCount} inc / ${s.arrivedCount} wait)`}</Typography>
+                              >
+                                {s.type === "ending_location" 
+                                  ? `(${s.travelingCount} inc)` 
+                                  : `(${s.travelingCount} inc / ${s.arrivedCount} wait)`}
+                              </Typography>
                             </Box>
                           }
                         />
@@ -890,111 +881,6 @@ export const OglJourney: FC = () => {
             </React.Fragment>
           );
         })}
-
-        {/* Render Other Stations if any */}
-        {otherStations.length > 0 && (
-          <>
-            <ListSubheader sx={{ fontWeight: "bold" }}>
-              Other Stations
-            </ListSubheader>
-            {otherStations.map((s) => {
-              const isCompleted = groupData.completedStations?.includes(s.id);
-              const isOpen = s.status === "OPEN";
-              const stationOccupancy = s.travelingCount + s.arrivedCount;
-              const isStationFull = stationOccupancy >= 3;
-              const isDisabled = isCompleted || !isOpen || isStationFull;
-
-              return (
-                <React.Fragment key={s.id}>
-                  <ListItem
-                    sx={{
-                      opacity: isDisabled ? 0.6 : 1,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      py: 1.5,
-                    }}
-                  >
-                    <Box
-                      sx={{
-                        display: "flex",
-                        alignItems: "center",
-                        mr: 1,
-                        flex: 1,
-                        minWidth: 0,
-                      }}
-                    >
-                      <ListItemAvatar>
-                        <Avatar
-                          sx={{
-                            bgcolor: isCompleted
-                              ? "success.light"
-                              : isOpen
-                              ? "primary.main"
-                              : "error.main",
-                          }}
-                        >
-                          <LocationOnIcon />
-                        </Avatar>
-                      </ListItemAvatar>
-                      <ListItemText
-                        primary={s.name}
-                        secondary={
-                          <Box component="span" sx={{ display: "block" }}>
-                            <Typography
-                              component="span"
-                              variant="body2"
-                              color="text.primary"
-                              sx={{ fontWeight: "bold", mr: 1 }}
-                            >
-                              {s.type.toUpperCase()}
-                            </Typography>
-                            <Typography
-                              component="span"
-                              variant="caption"
-                              color="text.secondary"
-                              sx={{ whiteSpace: "nowrap" }}
-                            >{`(${s.travelingCount} inc / ${s.arrivedCount} wait)`}</Typography>
-                          </Box>
-                        }
-                      />
-                    </Box>
-                    <Box sx={{ minWidth: "fit-content" }}>
-                      {isCompleted ? (
-                        <Chip
-                          icon={<CheckCircleIcon />}
-                          label="Done"
-                          color="success"
-                          size="small"
-                        />
-                      ) : !isOpen ? (
-                        <Chip
-                          label={s.status.replace("_", " ")}
-                          color="error"
-                          size="small"
-                        />
-                      ) : isStationFull ? (
-                        <Chip label="Full" color="warning" size="small" />
-                      ) : (
-                        <Button
-                          variant="contained"
-                          size="small"
-                          onClick={() => {
-                            setSelectedStation(s);
-                            setTravelDialogOpen(true);
-                          }}
-                        >
-                          GO
-                        </Button>
-                      )}
-                    </Box>
-                  </ListItem>
-                  <Divider variant="inset" component="li" />
-                </React.Fragment>
-              );
-            })}
-          </>
-        )}
       </List>
       
       {/* ADDED: Warning Dialog */}

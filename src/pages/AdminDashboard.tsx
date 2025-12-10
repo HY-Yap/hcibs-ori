@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react"; // Added useRef
+import { useEffect, useState, useRef, useMemo } from "react"; // Added useMemo
 import type { FC } from "react";
 import {
   Box,
@@ -45,6 +45,7 @@ interface StationData {
   status: "OPEN" | "CLOSED_LUNCH" | "CLOSED_PERMANENTLY";
   travelingCount: number;
   arrivedCount: number;
+  area?: string; // ADDED
 }
 
 interface GroupData {
@@ -65,6 +66,17 @@ interface AnnouncementData {
   targets?: string[]; // Added targets field
 }
 
+// ADDED: Rainbow Colors
+const RAINBOW_COLORS = [
+  "#ffcdd2", // Red
+  "#ffe0b2", // Orange
+  "#fff9c4", // Yellow
+  "#c8e6c9", // Green
+  "#bbdefb", // Blue
+  "#c5cae9", // Indigo
+  "#ce93d8", // Purple (Changed for better contrast with Red)
+];
+
 export const AdminDashboard: FC = () => {
   const [tabValue, setTabValue] = useState(0);
   const [stations, setStations] = useState<StationData[]>([]);
@@ -77,6 +89,36 @@ export const AdminDashboard: FC = () => {
   >([]);
   const [page, setPage] = useState(1); // Pagination state
   const itemsPerPage = 10;
+
+  // ADDED: Group and Sort Stations by Area
+  const stationsByArea = useMemo(() => {
+    const groups: Record<string, StationData[]> = {};
+    stations.forEach((s) => {
+      const area = s.area || "Others";
+      if (!groups[area]) groups[area] = [];
+      groups[area].push(s);
+    });
+
+    // Sort stations within groups: Manned first, then alphabetical
+    Object.keys(groups).forEach((area) => {
+      groups[area].sort((a, b) => {
+        if (a.type === "manned" && b.type !== "manned") return -1;
+        if (a.type !== "manned" && b.type === "manned") return 1;
+        return a.name.localeCompare(b.name);
+      });
+    });
+
+    return groups;
+  }, [stations]);
+
+  // ADDED: Sorted Area Keys
+  const sortedAreaKeys = useMemo(() => {
+    return Object.keys(stationsByArea).sort((a, b) => {
+      if (a === "Others") return 1;
+      if (b === "Others") return -1;
+      return a.localeCompare(b);
+    });
+  }, [stationsByArea])
 
   // Notification State for RECEIVED announcements
   const [notifyOpen, setNotifyOpen] = useState(false);
@@ -269,42 +311,68 @@ export const AdminDashboard: FC = () => {
               </TableRow>
             </TableHead>
             <TableBody>
-              {stations.map((s) => (
-                <TableRow key={s.id}>
-                  <TableCell sx={{ fontWeight: "bold" }}>{s.name}</TableCell>
-                  <TableCell>
-                    <Chip
-                      label={s.status.replace("_", " ")}
-                      color={
-                        s.status === "OPEN"
-                          ? "success"
-                          : s.status === "CLOSED_LUNCH"
-                          ? "warning"
-                          : "error"
-                      }
-                      size="small"
-                    />
-                  </TableCell>
-                  <TableCell
-                    align="center"
-                    sx={{
-                      color: s.travelingCount > 3 ? "warning.main" : "inherit",
-                      fontWeight: s.travelingCount > 3 ? "bold" : "normal",
-                    }}
-                  >
-                    {s.travelingCount}
-                  </TableCell>
-                  <TableCell
-                    align="center"
-                    sx={{
-                      color: s.arrivedCount > 2 ? "error.main" : "inherit",
-                      fontWeight: s.arrivedCount > 2 ? "bold" : "normal",
-                    }}
-                  >
-                    {s.arrivedCount}
-                  </TableCell>
-                </TableRow>
-              ))}
+              {sortedAreaKeys.map((area, index) => {
+                const areaStations = stationsByArea[area];
+                const areaColor =
+                  area === "Others"
+                    ? "#f5f5f5"
+                    : RAINBOW_COLORS[index % RAINBOW_COLORS.length];
+
+                return (
+                  <React.Fragment key={area}>
+                    {/* Area Header Row */}
+                    <TableRow sx={{ bgcolor: areaColor }}>
+                      <TableCell
+                        colSpan={4}
+                        sx={{ fontWeight: "bold", color: "text.primary" }}
+                      >
+                        {area}
+                      </TableCell>
+                    </TableRow>
+                    {areaStations.map((s) => (
+                      <TableRow key={s.id}>
+                        <TableCell sx={{ fontWeight: "bold", pl: 4 }}>
+                          {s.name}
+                        </TableCell>
+                        <TableCell>
+                          <Chip
+                            label={s.status.replace("_", " ")}
+                            color={
+                              s.status === "OPEN"
+                                ? "success"
+                                : s.status === "CLOSED_LUNCH"
+                                ? "warning"
+                                : "error"
+                            }
+                            size="small"
+                          />
+                        </TableCell>
+                        <TableCell
+                          align="center"
+                          sx={{
+                            color:
+                              s.travelingCount > 3 ? "warning.main" : "inherit",
+                            fontWeight:
+                              s.travelingCount > 3 ? "bold" : "normal",
+                          }}
+                        >
+                          {s.travelingCount}
+                        </TableCell>
+                        <TableCell
+                          align="center"
+                          sx={{
+                            color:
+                              s.arrivedCount > 2 ? "error.main" : "inherit",
+                            fontWeight: s.arrivedCount > 2 ? "bold" : "normal",
+                          }}
+                        >
+                          {s.arrivedCount}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </React.Fragment>
+                );
+              })}
             </TableBody>
           </Table>
         </TableContainer>

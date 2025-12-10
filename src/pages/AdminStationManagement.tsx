@@ -52,54 +52,22 @@ type StationStatus =
 type SortableColumn = "name" | "type" | "location" | "status" | "points" | "area"; // ADDED area
 type Order = "asc" | "desc";
 
-// Define Area Config for sorting
-const AREA_ORDER = [
-  "Central-West Area",
-  "Circle Line Area",
-  "CBD Area",
-  "Others",
+// REMOVED: AREA_ORDER, AREA_CONFIG
+
+// ADDED: Rainbow Colors
+const RAINBOW_COLORS = [
+  "#ffcdd2", // Red
+  "#ffe0b2", // Orange
+  "#fff9c4", // Yellow
+  "#c8e6c9", // Green
+  "#bbdefb", // Blue
+  "#c5cae9", // Indigo
+  "#ce93d8", // Purple (Changed for better contrast with Red)
 ];
 
-const AREA_CONFIG: Record<string, string[]> = {
-  "Central-West Area": [
-    "Holland Village",
-    "Bishan",
-    "Beauty World",
-    "King Albert Park",
-    "Botanic Gardens",
-    "Toa Payoh",
-  ],
-  "Circle Line Area": [
-    "Paya Lebar",
-    "Stadium",
-    "Promenade",
-    "Serangoon",
-    "Esplanade",
-  ],
-  "CBD Area": [
-    "Bugis",
-    "Clarke Quay",
-    "Fort Canning",
-    "City Hall",
-    "Raffles Place",
-    "National Library",
-  ],
-  Others: ["Marina Barrage"],
-};
-
-// ADDED: Area Colors for visual distinction
-const AREA_COLORS: Record<string, string> = {
-  "Central-West Area": "#e3f2fd", // Light Blue
-  "Circle Line Area": "#f3e5f5", // Light Purple
-  "CBD Area": "#e8f5e9", // Light Green
-  Others: "#fff9c4", // Light Yellow
-};
-
-const getArea = (stationName: string) => {
-  for (const [area, stations] of Object.entries(AREA_CONFIG)) {
-    if (stations.includes(stationName)) return area;
-  }
-  return "Others";
+// MODIFIED: Helper to get area from station object
+const getStationArea = (station: StationData) => {
+  return station.area || "Others";
 };
 
 export const AdminStationManagement: React.FC = () => {
@@ -121,6 +89,24 @@ export const AdminStationManagement: React.FC = () => {
   const [filterStatus, setFilterStatus] = useState<StationStatus>("ALL");
   const [orderBy, setOrderBy] = useState<SortableColumn>("area"); // Default sort by area
   const [order, setOrder] = useState<Order>("asc");
+
+  // ADDED: Compute unique areas for coloring and sorting
+  const uniqueAreas = useMemo(() => {
+    const areas = new Set(stations.map(s => s.area || "Others"));
+    return Array.from(areas).sort((a, b) => {
+      if (a === "Others") return 1;
+      if (b === "Others") return -1;
+      return a.localeCompare(b);
+    });
+  }, [stations]);
+
+  const areaColorMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    uniqueAreas.forEach((area, index) => {
+      map[area] = area === "Others" ? "#f5f5f5" : RAINBOW_COLORS[index % RAINBOW_COLORS.length];
+    });
+    return map;
+  }, [uniqueAreas]);
 
   useEffect(() => {
     setLoading(true);
@@ -162,17 +148,15 @@ export const AdminStationManagement: React.FC = () => {
       .sort((a, b) => {
         // ADDED: Handle area sorting (Default)
         if (orderBy === "area") {
-          const areaA = getArea(a.name);
-          const areaB = getArea(b.name);
-          const indexA = AREA_ORDER.indexOf(areaA);
-          const indexB = AREA_ORDER.indexOf(areaB);
+          const areaA = getStationArea(a);
+          const areaB = getStationArea(b);
           
-          // Handle unknown areas
-          const safeIndexA = indexA === -1 ? 999 : indexA;
-          const safeIndexB = indexB === -1 ? 999 : indexB;
-
-          if (safeIndexA !== safeIndexB) {
-            return order === "asc" ? safeIndexA - safeIndexB : safeIndexB - safeIndexA;
+          // Sort known areas first, then others
+          const indexA = uniqueAreas.indexOf(areaA);
+          const indexB = uniqueAreas.indexOf(areaB);
+          
+          if (indexA !== indexB) {
+            return order === "asc" ? indexA - indexB : indexB - indexA;
           }
 
           // Secondary sort: Type (Manned first)
@@ -406,11 +390,11 @@ export const AdminStationManagement: React.FC = () => {
               </TableRow>
             ) : (
               filteredAndSortedStations.map((s, index) => {
-                const areaName = getArea(s.name);
-                const areaColor = AREA_COLORS[areaName] || "#f5f5f5";
+                const areaName = getStationArea(s);
+                const areaColor = areaColorMap[areaName] || "#f5f5f5";
                 
                 // Determine if we need a separator (new area group)
-                const prevArea = index > 0 ? getArea(filteredAndSortedStations[index - 1].name) : null;
+                const prevArea = index > 0 ? getStationArea(filteredAndSortedStations[index - 1]) : null;
                 const isNewArea = index > 0 && areaName !== prevArea && orderBy === "area";
 
                 return (
@@ -504,6 +488,7 @@ export const AdminStationManagement: React.FC = () => {
         onClose={() => setModalOpen(false)}
         onSuccess={() => {}}
         initialData={stationToEdit}
+        existingAreas={uniqueAreas} // ADDED: Pass existing areas
       />
 
       <Dialog

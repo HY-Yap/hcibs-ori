@@ -25,56 +25,24 @@ interface StationData {
   location?: string;
   description?: string;
   points: number;
+  area?: string; // ADDED
 }
 
-// Define Area Config for sorting
-const AREA_ORDER = [
-  "Central-West Area",
-  "Circle Line Area",
-  "CBD Area",
-  "Others",
+// REMOVED: AREA_ORDER, AREA_CONFIG, AREA_COLORS
+
+// ADDED: Rainbow Colors
+const RAINBOW_COLORS = [
+  "#ffcdd2", // Red
+  "#ffe0b2", // Orange
+  "#fff9c4", // Yellow
+  "#c8e6c9", // Green
+  "#bbdefb", // Blue
+  "#c5cae9", // Indigo
+  "#ce93d8", // Purple (Changed for better contrast with Red)
 ];
 
-const AREA_CONFIG: Record<string, string[]> = {
-  "Central-West Area": [
-    "Holland Village",
-    "Bishan",
-    "Beauty World",
-    "King Albert Park",
-    "Botanic Gardens",
-    "Toa Payoh",
-  ],
-  "Circle Line Area": [
-    "Paya Lebar",
-    "Stadium",
-    "Promenade",
-    "Serangoon",
-    "Esplanade",
-  ],
-  "CBD Area": [
-    "Bugis",
-    "Clarke Quay",
-    "Fort Canning",
-    "City Hall",
-    "Raffles Place",
-    "National Library",
-  ],
-  "Others": ["Marina Barrage"],
-};
-
-// ADDED: Area Colors for visual distinction
-const AREA_COLORS: Record<string, string> = {
-  "Central-West Area": "#e3f2fd", // Light Blue
-  "Circle Line Area": "#f3e5f5", // Light Purple
-  "CBD Area": "#e8f5e9", // Light Green
-  "Others": "#fff9c4", // Light Yellow
-};
-
-const getArea = (stationName: string) => {
-  for (const [area, stations] of Object.entries(AREA_CONFIG)) {
-    if (stations.includes(stationName)) return area;
-  }
-  return "Others";
+const getStationArea = (station: StationData) => {
+  return station.area || "Others";
 };
 
 export const StationsPage: FC = () => {
@@ -102,23 +70,19 @@ export const StationsPage: FC = () => {
             location: "Marina Barrage",
             description: "Dinner Location",
             points: 0,
+            area: "Others", // ADDED
           });
         }
 
         const sorted = stationsList.sort((a: StationData, b: StationData) => {
-          const areaA = getArea(a.name);
-          const areaB = getArea(b.name);
+          const areaA = getStationArea(a);
+          const areaB = getStationArea(b);
 
-          // 1. Sort by Area Order
-          const indexA = AREA_ORDER.indexOf(areaA);
-          const indexB = AREA_ORDER.indexOf(areaB);
-
-          // Handle unknown areas (put them last)
-          const safeIndexA = indexA === -1 ? 999 : indexA;
-          const safeIndexB = indexB === -1 ? 999 : indexB;
-
-          if (safeIndexA !== safeIndexB) {
-            return safeIndexA - safeIndexB;
+          // 1. Sort by Area (Alphabetical, Others last)
+          if (areaA !== areaB) {
+            if (areaA === "Others") return 1;
+            if (areaB === "Others") return -1;
+            return areaA.localeCompare(areaB);
           }
 
           // 2. Sort by Type (Manned first, then Unmanned, then Ending)
@@ -146,12 +110,21 @@ export const StationsPage: FC = () => {
   const stationsByArea = useMemo(() => {
     const groups: Record<string, StationData[]> = {};
     stations.forEach((s) => {
-      const area = getArea(s.name);
+      const area = getStationArea(s);
       if (!groups[area]) groups[area] = [];
       groups[area].push(s);
     });
     return groups;
   }, [stations]);
+
+  // Get sorted area keys
+  const sortedAreaKeys = useMemo(() => {
+    return Object.keys(stationsByArea).sort((a, b) => {
+      if (a === "Others") return 1;
+      if (b === "Others") return -1;
+      return a.localeCompare(b);
+    });
+  }, [stationsByArea]);
 
   if (loading)
     return (
@@ -188,10 +161,14 @@ export const StationsPage: FC = () => {
         </Typography>
       </Box>
 
-      {AREA_ORDER.map((area) => {
+      {sortedAreaKeys.map((area, index) => {
         const areaStations = stationsByArea[area];
         if (!areaStations || areaStations.length === 0) return null;
-        const areaColor = AREA_COLORS[area] || "#f5f5f5";
+        
+        // Determine Color
+        const areaColor = area === "Others" 
+          ? "#f5f5f5" 
+          : RAINBOW_COLORS[index % RAINBOW_COLORS.length];
 
         return (
           <Box key={area} sx={{ mb: 6 }}>

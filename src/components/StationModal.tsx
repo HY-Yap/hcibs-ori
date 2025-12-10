@@ -12,6 +12,7 @@ import {
   MenuItem,
   CircularProgress,
   Alert,
+  Divider,
 } from "@mui/material";
 import { getFunctions, httpsCallable } from "firebase/functions";
 
@@ -38,17 +39,21 @@ export interface StationData {
   type: "manned" | "unmanned" | "ending_location";
   description: string;
   location: string;
-  points?: number; // ADDED
+  points?: number;
   status?: string;
   travelingCount?: number;
   arrivedCount?: number;
+  hasSecondStage?: boolean;
+  secondDescription?: string;
+  area?: string;
 }
 
 interface StationModalProps {
   open: boolean;
   onClose: () => void;
   onSuccess: () => void;
-  initialData?: StationData | null; // <-- NEW: For editing
+  initialData?: StationData | null;
+  existingAreas: string[]; // ADDED: List of existing areas
 }
 
 export const StationModal: FC<StationModalProps> = ({
@@ -56,12 +61,21 @@ export const StationModal: FC<StationModalProps> = ({
   onClose,
   onSuccess,
   initialData,
+  existingAreas,
 }) => {
   const [name, setName] = useState("");
   const [type, setType] = useState<"manned" | "unmanned" | "ending_location" | "">("");
-  const [points, setPoints] = useState(50); // Default 50
+  const [points, setPoints] = useState(50);
   const [location, setLocation] = useState("");
   const [description, setDescription] = useState("");
+  
+  // Area State
+  const [areaSelection, setAreaSelection] = useState(""); 
+  const [customAreaName, setCustomAreaName] = useState("");
+
+  const [hasSecondStage, setHasSecondStage] = useState(false);
+  const [secondDescription, setSecondDescription] = useState("");
+
   const [status, setStatus] = useState<
     "OPEN" | "LUNCH_SOON" | "CLOSED_LUNCH" | "CLOSED_PERMANENTLY"
   >("OPEN");
@@ -78,6 +92,14 @@ export const StationModal: FC<StationModalProps> = ({
       setDescription(initialData.description || "");
       setStatus(initialData.status as any);
       setPoints(initialData.points || 0);
+      
+      // Handle Area Population
+      const currentArea = initialData.area || "Others";
+      setAreaSelection(currentArea);
+      setCustomAreaName("");
+
+      setHasSecondStage(initialData.hasSecondStage || false);
+      setSecondDescription(initialData.secondDescription || "");
     } else if (open && !initialData) {
       // Reset if creating new
       setName("");
@@ -86,6 +108,12 @@ export const StationModal: FC<StationModalProps> = ({
       setDescription("");
       setStatus("OPEN");
       setPoints(0);
+      
+      setAreaSelection(""); // Force user to choose
+      setCustomAreaName("");
+      
+      setHasSecondStage(false);
+      setSecondDescription("");
     }
     setError(null);
   }, [open, initialData]);
@@ -93,6 +121,23 @@ export const StationModal: FC<StationModalProps> = ({
   const handleSave = async () => {
     setSaving(true);
     setError(null);
+
+    // Determine Final Area
+    let finalArea = areaSelection;
+    if (areaSelection === "__NEW__") {
+      if (!customAreaName.trim()) {
+        setError("Please enter a name for the new area.");
+        setSaving(false);
+        return;
+      }
+      finalArea = customAreaName.trim();
+    }
+    if (!finalArea) {
+      setError("Please select an Area.");
+      setSaving(false);
+      return;
+    }
+
     try {
       const functions = getFunctions(undefined, "asia-southeast1");
 
@@ -106,11 +151,23 @@ export const StationModal: FC<StationModalProps> = ({
           location,
           description,
           points,
+          area: finalArea,
+          hasSecondStage,
+          secondDescription,
         });
       } else {
         // CREATE new
         const createFn = httpsCallable(functions, "createStation");
-        await createFn({ name, type, location, description, points });
+        await createFn({ 
+          name, 
+          type, 
+          location, 
+          description, 
+          points,
+          area: finalArea,
+          hasSecondStage,
+          secondDescription,
+        });
       }
 
       // If editing an existing station and status changed, call updateStationStatus
@@ -129,6 +186,9 @@ export const StationModal: FC<StationModalProps> = ({
       setSaving(false);
     }
   };
+
+  // Prepare Area Options: Unique list + "Others" + "Create New"
+  const areaOptions = Array.from(new Set([...existingAreas, "Others"])).sort();
 
   return (
     <Modal open={open} onClose={onClose}>
@@ -177,6 +237,40 @@ export const StationModal: FC<StationModalProps> = ({
           onChange={(e) => setLocation(e.target.value)}
           placeholder="e.g. Junction 8 Roof"
         />
+        
+        {/* AREA SELECTION */}
+        <FormControl fullWidth required>
+          <InputLabel id="area-label">Area</InputLabel>
+          <Select
+            labelId="area-label"
+            value={areaSelection}
+            label="Area"
+            onChange={(e) => setAreaSelection(e.target.value)}
+          >
+            {areaOptions.map((area) => (
+              <MenuItem key={area} value={area}>
+                {area}
+              </MenuItem>
+            ))}
+            <Divider />
+            <MenuItem value="__NEW__" sx={{ fontStyle: 'italic', color: 'primary.main' }}>
+              + Create New Area...
+            </MenuItem>
+          </Select>
+        </FormControl>
+
+        {areaSelection === "__NEW__" && (
+          <TextField
+            label="New Area Name"
+            variant="outlined"
+            fullWidth
+            value={customAreaName}
+            onChange={(e) => setCustomAreaName(e.target.value)}
+            placeholder="e.g. North-East Line Area"
+            autoFocus
+          />
+        )}
+
         <TextField
           label="Task Description"
           variant="outlined"
@@ -187,6 +281,34 @@ export const StationModal: FC<StationModalProps> = ({
           onChange={(e) => setDescription(e.target.value)}
           placeholder="Only shown to OGLs if Unmanned."
         />
+
+        {/* 2nd Stage Configuration */}
+        <FormControl fullWidth>
+          <InputLabel id="second-stage-label">2nd Stage</InputLabel>
+          <Select
+            labelId="second-stage-label"
+            value={hasSecondStage ? "yes" : "no"}
+            label="2nd Stage"
+            onChange={(e) => setHasSecondStage(e.target.value === "yes")}
+          >
+            <MenuItem value="no">No</MenuItem>
+            <MenuItem value="yes">Yes</MenuItem>
+          </Select>
+        </FormControl>
+
+        {hasSecondStage && (
+          <TextField
+            label="2nd Description"
+            variant="outlined"
+            fullWidth
+            multiline
+            rows={3}
+            value={secondDescription}
+            onChange={(e) => setSecondDescription(e.target.value)}
+            placeholder="Description for the 2nd stage."
+          />
+        )}
+
         {/* Status selector shown when editing (or always if you prefer) */}
         <FormControl fullWidth>
           <InputLabel id="station-status-label">Status</InputLabel>

@@ -33,6 +33,7 @@ interface StationData {
   type: "manned" | "unmanned";
   description: string;
   location: string;
+  area?: string; // ADDED
 }
 interface SideQuestData {
   id?: string;
@@ -60,46 +61,6 @@ interface HouseData {
   name: string;
   color?: string;
 }
-
-// --- CONFIGURATION (Mirrors Frontend) ---
-const AREA_CONFIG: Record<string, { prerequisites: string[]; stations: string[] }> = {
-  "Central-West Area": {
-    prerequisites: ["Holland Village", "Bishan"],
-    stations: [
-      "Holland Village",
-      "Bishan",
-      "Beauty World",
-      "King Albert Park",
-      "Botanic Gardens",
-      "Toa Payoh",
-    ],
-  },
-  "Circle Line Area": {
-    prerequisites: ["Paya Lebar", "Stadium"],
-    stations: [
-      "Paya Lebar",
-      "Stadium",
-      "Promenade",
-      "Serangoon",
-      "Esplanade",
-    ],
-  },
-  "CBD Area": {
-    prerequisites: ["Bugis", "Clarke Quay"],
-    stations: [
-      "Bugis",
-      "Clarke Quay",
-      "Fort Canning",
-      "City Hall",
-      "Raffles Place",
-      "National Library",
-    ],
-  },
-  Others: {
-    prerequisites: [],
-    stations: ["Marina Barrage"],
-  },
-};
 
 // --- HELPER: SEND PUSH TO SPECIFIC STATION MASTER ---
 const notifyStationMaster = async (stationId: string, message: string) => {
@@ -320,6 +281,7 @@ export const createStation = onCall(
       await ref.set({
         ...request.data,
         points: request.data.points || 0,
+        area: request.data.area || "Others", // ADDED
         status: "OPEN",
         travelingCount: 0,
         arrivedCount: 0,
@@ -453,7 +415,7 @@ export const updateStation = onCall(
       throw new HttpsError("permission-denied", "Admin only.");
 
     try {
-      const { id, name, type, description, location } = request.data;
+      const { id, name, type, description, location, area } = request.data; // ADDED area
       await admin
         .firestore()
         .collection("stations")
@@ -463,6 +425,7 @@ export const updateStation = onCall(
           type,
           description,
           location,
+          area: area || "Others", // ADDED
           points: request.data.points || 0,
         });
       return { success: true };
@@ -613,6 +576,7 @@ export const submitScore = onCall(
       let sPoints = 0;
       let sqPoints = 0;
       let isPending = false;
+      let isStageOneCompletion = false; // ADDED
 
       if (sId) {
         const stationDoc = await admin
@@ -623,32 +587,28 @@ export const submitScore = onCall(
         const stationData = stationDoc.data();
         const stationName = stationData?.name;
         const isManned = stationData?.type === "manned";
+        const hasSecondStage = stationData?.hasSecondStage;
         
-        // 1. Determine Area and Prerequisites
-        let areaName = "Others";
-        let prereqNames: string[] = [];
-        for (const [area, config] of Object.entries(AREA_CONFIG)) {
-          if (config.stations.includes(stationName)) {
-            areaName = area;
-            prereqNames = config.prerequisites;
-            break;
-          }
-        }
+        // 1. Determine Area
+        const areaName = stationData?.area || "Others";
 
-        // 2. Check if Prerequisites are met
-        // We need IDs of prereq stations. Querying by name.
-        let arePrereqsMet = true;
-        if (prereqNames.length > 0) {
-          const prereqSnaps = await admin.firestore().collection("stations").where("name", "in", prereqNames).get();
-          const prereqIds = prereqSnaps.docs.map(d => d.id);
-          const completedIds = new Set(groupData?.completedStations || []);
-          // Add current station to completed set for the check (if it's one of them)
-          completedIds.add(sId);
-          
-          arePrereqsMet = prereqIds.every(pid => completedIds.has(pid));
-        }
+        // 2. Determine Prerequisites (All manned stations in this area)
+        // Fetch all stations to find prerequisites dynamically
+        const allStationsSnap = await admin.firestore().collection("stations").get();
+        const allStations = allStationsSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+        
+        const areaStations = allStations.filter(s => (s.area || "Others") === areaName);
+        const prereqStations = areaStations.filter(s => s.type === "manned");
+        const prereqIds = prereqStations.map(s => s.id);
 
-        // 3. Calculate Points & Handle Pending Logic
+        // 3. Check if Prerequisites are met
+        const completedIds = new Set(groupData?.completedStations || []);
+        // Add current station to completed set for the check (if it's one of them)
+        completedIds.add(sId);
+        
+        const arePrereqsMet = prereqIds.every(pid => completedIds.has(pid));
+
+        // 4. Calculate Points & Handle Pending Logic
         if (isManned && (callerRole === "SM" || callerRole === "ADMIN")) {
           // Manned stations always get points immediately
           sPoints = points || 0;
@@ -657,17 +617,14 @@ export const submitScore = onCall(
           if (arePrereqsMet) {
             const pendingStations = groupData?.pendingStations || [];
             if (pendingStations.length > 0) {
-              // Fetch all pending stations to check their area
-              // Optimization: We could store area in pendingStations, but fetching is safer
               // Filter pending stations that belong to THIS area
-              const pendingDocs = await Promise.all(pendingStations.map((pid: string) => admin.firestore().collection("stations").doc(pid).get()));
+              // We can use the allStations array we already fetched
+              const pendingInArea = allStations.filter(s => 
+                pendingStations.includes(s.id) && (s.area || "Others") === areaName
+              );
               
-              for (const pDoc of pendingDocs) {
-                if (!pDoc.exists) continue;
-                const pData = pDoc.data();
-                // Check if this pending station is in the current area
-                if (AREA_CONFIG[areaName]?.stations.includes(pData?.name)) {
-                  const releasedPoints = pData?.points || 50;
+              for (const pData of pendingInArea) {
+                  const releasedPoints = pData.points || 50;
                   totalPointsToAdd += releasedPoints;
                   
                   // Log the release
@@ -675,8 +632,8 @@ export const submitScore = onCall(
                   batch.set(releaseLogRef, {
                     timestamp: admin.firestore.FieldValue.serverTimestamp(),
                     groupId,
-                    stationId: pDoc.id,
-                    sourceId: pDoc.id,
+                    stationId: pData.id,
+                    sourceId: pData.id,
                     points: releasedPoints,
                     type: "STATION",
                     awardedBy: "SYSTEM",
@@ -685,21 +642,31 @@ export const submitScore = onCall(
                   });
 
                   // Remove from pending
-                  updateData.pendingStations = admin.firestore.FieldValue.arrayRemove(pDoc.id);
-                }
+                  updateData.pendingStations = admin.firestore.FieldValue.arrayRemove(pData.id);
               }
             }
           }
 
         } else {
           // Unmanned Station
-          if (arePrereqsMet) {
-            sPoints = stationData?.points || 50;
-          } else {
-            // Prereqs NOT met -> Pending
+          // 2nd Stage Logic
+          const stageOneCompleted = groupData?.stageOneCompletedStations?.includes(sId);
+          
+          if (hasSecondStage && !stageOneCompleted) {
+            // Completing Stage 1
             sPoints = 0;
-            isPending = true;
-            updateData.pendingStations = admin.firestore.FieldValue.arrayUnion(sId);
+            isStageOneCompletion = true;
+            updateData.stageOneCompletedStations = admin.firestore.FieldValue.arrayUnion(sId);
+          } else {
+            // Completing Stage 2 OR Single Stage
+            if (arePrereqsMet) {
+              sPoints = stationData?.points || 50;
+            } else {
+              // Prereqs NOT met -> Pending
+              sPoints = 0;
+              isPending = true;
+              updateData.pendingStations = admin.firestore.FieldValue.arrayUnion(sId);
+            }
           }
         }
       }
@@ -712,30 +679,44 @@ export const submitScore = onCall(
           .get();
         const sqData = sqDoc.data();
         const isSmManaged = sqData?.isSmManaged;
+        const hasSecondStage = sqData?.hasSecondStage; // ADDED
         
         if (isSmManaged && (callerRole === "SM" || callerRole === "ADMIN")) {
           // For SM-managed side quests: SM/ADMIN can set custom points
           sqPoints = points || 0;
         } else {
-          // For regular side quests: Always use database points
-          sqPoints = sqData?.points || 0;
+          // For regular side quests
+          // ADDED: 2nd Stage Logic
+          const stageOneCompleted = groupData?.stageOneCompletedSideQuests?.includes(sqId);
+
+          if (hasSecondStage && !stageOneCompleted) {
+             // Completing Stage 1
+             sqPoints = 0;
+             isStageOneCompletion = true;
+             updateData.stageOneCompletedSideQuests = admin.firestore.FieldValue.arrayUnion(sqId);
+          } else {
+             // Completing Stage 2 OR Single Stage
+             sqPoints = sqData?.points || 0;
+          }
         }
       }
       // ------------------------------------------------------------
 
       // 1. HANDLE STATION
-      if (sId) { // Always process if sId exists, even if points are 0 (for pending)
-        totalPointsToAdd += sPoints;
-        updateData.completedStations =
-          admin.firestore.FieldValue.arrayUnion(sId);
-        updateData.status = "IDLE";
-        updateData.lastStationId = sId;
-        updateData.destinationId = admin.firestore.FieldValue.delete();
-        updateData.destinationEta = admin.firestore.FieldValue.delete();
+      if (sId) { // Always process if sId exists
+        // MODIFIED: Only mark as fully completed if NOT just stage 1
+        if (!isStageOneCompletion) {
+            totalPointsToAdd += sPoints;
+            updateData.completedStations = admin.firestore.FieldValue.arrayUnion(sId);
+            updateData.status = "IDLE";
+            updateData.lastStationId = sId;
+            updateData.destinationId = admin.firestore.FieldValue.delete();
+            updateData.destinationEta = admin.firestore.FieldValue.delete();
 
-        batch.update(admin.firestore().collection("stations").doc(sId), {
-          arrivedCount: admin.firestore.FieldValue.increment(-1),
-        });
+            batch.update(admin.firestore().collection("stations").doc(sId), {
+              arrivedCount: admin.firestore.FieldValue.increment(-1),
+            });
+        }
 
         const logRef = admin.firestore().collection("scoreLog").doc();
         batch.set(logRef, {
@@ -747,26 +728,29 @@ export const submitScore = onCall(
           type: "STATION",
           awardedBy: request.auth.uid,
           awardedByRole: callerRole,
-          note: isPending ? "Pending Prerequisites" : (adminNote || ""),
+          note: isStageOneCompletion ? "Stage 1 Completed" : (isPending ? "Pending Prerequisites" : (adminNote || "")),
           submissionUrl: submissionUrl || null,
           textAnswer: textAnswer || null,
         });
       }
 
       // 2. HANDLE SIDE QUEST
-      if (sqPoints > 0 && sqId) {
-        totalPointsToAdd += sqPoints;
-        updateData.completedSideQuests =
-          admin.firestore.FieldValue.arrayUnion(sqId);
+      if (sqId) { // MODIFIED: Process even if points 0 (for stage 1)
+        if (!isStageOneCompletion) {
+            totalPointsToAdd += sqPoints;
+            updateData.completedSideQuests = admin.firestore.FieldValue.arrayUnion(sqId);
+        }
+        
         const sqLogRef = admin.firestore().collection("scoreLog").doc();
         batch.set(sqLogRef, {
           timestamp: admin.firestore.FieldValue.serverTimestamp(),
           groupId,
           sourceId: sqId,
-          points: sqPoints, // Use calculated points (custom for SM-managed, fixed for others)
+          points: sqPoints,
           type: "SIDE_QUEST",
           awardedBy: request.auth.uid,
           awardedByRole: callerRole,
+          note: isStageOneCompletion ? "Stage 1 Completed" : "",
           submissionUrl: submissionUrl || null,
           textAnswer: textAnswer || null,
         });
@@ -785,7 +769,7 @@ export const submitScore = onCall(
       }
 
       await batch.commit();
-      return { success: true, message: isPending ? "Station completed. Points pending prerequisites." : "Scores submitted." };
+      return { success: true, message: isStageOneCompletion ? "Proceed to 2nd Stage." : (isPending ? "Station completed. Points pending prerequisites." : "Scores submitted.") };
     } catch (error: any) {
       console.error("Score error:", error);
       throw new HttpsError("internal", error.message);
@@ -2304,6 +2288,7 @@ export const getPublicGameInfo = onRequest(
           type: data.type,
           points: data.points || 50, // Default if missing
           location: data.location,
+          area: data.area, // <--- ADDED: Expose area field to frontend
           // CRITICAL: Hide description if manned
           description: data.type === 'manned' 
             ? "Game will be conducted by the Station Master." 
