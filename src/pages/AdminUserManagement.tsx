@@ -26,6 +26,8 @@ import {
   InputLabel,
   Select,
   TableSortLabel,
+  Checkbox,
+  Fade, // ADDED
 } from "@mui/material";
 import { collection, getDocs } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
@@ -67,6 +69,11 @@ export const AdminUserManagement: React.FC = () => {
   const [orderBy, setOrderBy] = useState<SortableColumn>("displayName");
   const [order, setOrder] = useState<Order>("asc");
 
+  // --- NEW! MULTI-SELECT STATE ---
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false);
+
   // --- NEW! DANGER ZONE STATE ---
   const [isDeleteAllOpen, setDeleteAllOpen] = useState(false);
   const [deleteAllConfirmation, setDeleteAllConfirmation] = useState("");
@@ -102,6 +109,51 @@ export const AdminUserManagement: React.FC = () => {
     const isAsc = orderBy === property && order === "asc";
     setOrder(isAsc ? "desc" : "asc");
     setOrderBy(property);
+  };
+
+  // --- NEW! MULTI-SELECT HANDLERS ---
+  const handleSelectAllClick = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (event.target.checked) {
+      const newSelecteds = filteredAndSortedUsers.map((n) => n.id);
+      setSelectedIds(newSelecteds);
+      return;
+    }
+    setSelectedIds([]);
+  };
+
+  const handleClick = (id: string) => {
+    const selectedIndex = selectedIds.indexOf(id);
+    let newSelected: string[] = [];
+
+    if (selectedIndex === -1) {
+      newSelected = newSelected.concat(selectedIds, id);
+    } else if (selectedIndex === 0) {
+      newSelected = newSelected.concat(selectedIds.slice(1));
+    } else if (selectedIndex === selectedIds.length - 1) {
+      newSelected = newSelected.concat(selectedIds.slice(0, -1));
+    } else if (selectedIndex > 0) {
+      newSelected = newSelected.concat(
+        selectedIds.slice(0, selectedIndex),
+        selectedIds.slice(selectedIndex + 1)
+      );
+    }
+    setSelectedIds(newSelected);
+  };
+
+  const handleBulkDelete = async () => {
+    setBulkDeleteLoading(true);
+    try {
+      const deleteUserFn = httpsCallable(firebaseFunctions, "deleteUser");
+      await Promise.all(selectedIds.map((uid) => deleteUserFn({ uid })));
+      setSelectedIds([]);
+      setBulkDeleteOpen(false);
+      fetchUsers();
+    } catch (err: any) {
+      console.error("Bulk delete error:", err);
+      alert("Error deleting users: " + err.message);
+    } finally {
+      setBulkDeleteLoading(false);
+    }
   };
 
   const filteredAndSortedUsers = useMemo(() => {
@@ -226,13 +278,24 @@ export const AdminUserManagement: React.FC = () => {
         <Typography variant="h4" component="h1" gutterBottom>
           User Management
         </Typography>
-        <Button
-          variant="contained"
-          color="primary"
-          onClick={() => setModalOpen(true)}
-        >
-          + Add New User
-        </Button>
+        <Box sx={{ display: 'flex', gap: 2 }}>
+          <Fade in={selectedIds.length > 0} unmountOnExit>
+            <Button
+              variant="contained"
+              color="error"
+              onClick={() => setBulkDeleteOpen(true)}
+            >
+              Delete Selected ({selectedIds.length})
+            </Button>
+          </Fade>
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={() => setModalOpen(true)}
+          >
+            + Add New User
+          </Button>
+        </Box>
       </Box>
       {deleteAllSuccess && (
         <Alert
@@ -287,6 +350,23 @@ export const AdminUserManagement: React.FC = () => {
         <Table sx={{ minWidth: 650 }} aria-label="simple user table">
           <TableHead>
             <TableRow sx={{ backgroundColor: "#f4f4f4" }}>
+              <TableCell padding="checkbox">
+                <Checkbox
+                  color="primary"
+                  indeterminate={
+                    selectedIds.length > 0 &&
+                    selectedIds.length < filteredAndSortedUsers.length
+                  }
+                  checked={
+                    filteredAndSortedUsers.length > 0 &&
+                    selectedIds.length === filteredAndSortedUsers.length
+                  }
+                  onChange={handleSelectAllClick}
+                  inputProps={{
+                    "aria-label": "select all users",
+                  }}
+                />
+              </TableCell>
               <TableCell>
                 <TableSortLabel
                   active={orderBy === "displayName"}
@@ -332,7 +412,7 @@ export const AdminUserManagement: React.FC = () => {
             {loading && (
               <TableRow>
                 {/* --- 6. UPDATED COLSPAN --- */}
-                <TableCell colSpan={6} align="center">
+                <TableCell colSpan={7} align="center">
                   <CircularProgress size={24} />
                 </TableCell>
               </TableRow>
@@ -340,39 +420,59 @@ export const AdminUserManagement: React.FC = () => {
             {!loading && filteredAndSortedUsers.length === 0 && (
               <TableRow>
                 {/* --- 6. UPDATED COLSPAN --- */}
-                <TableCell colSpan={6} align="center">
+                <TableCell colSpan={7} align="center">
                   {users.length === 0
                     ? "No users found."
-                    : "No users match your filters."}
+                    : "No users match filters."}
                 </TableCell>
               </TableRow>
             )}
             {!loading &&
-              filteredAndSortedUsers.map((user) => (
-                <TableRow
-                  key={user.id}
-                  sx={{ "&:last-child td, &:last-child th": { border: 0 } }}
-                >
-                  <TableCell component="th" scope="row">
-                    {user.displayName}
-                  </TableCell>
-                  {/* --- 5. ADDED USERNAME CELL --- */}
-                  <TableCell>{user.username || "N/A"}</TableCell>
-                  <TableCell>{user.role}</TableCell>
-                  <TableCell>{user.email || "N/A"}</TableCell>
-                  <TableCell>
-                    <code>{user.id}</code>
-                  </TableCell>
-                  <TableCell align="right">
-                    <IconButton
-                      aria-label="more"
-                      onClick={(e) => handleMenuOpen(e, user)}
-                    >
-                      <MoreVertIcon />
-                    </IconButton>
-                  </TableCell>
-                </TableRow>
-              ))}
+              filteredAndSortedUsers.map((user) => {
+                const isSelected = selectedIds.indexOf(user.id) !== -1;
+                return (
+                  <TableRow
+                    key={user.id}
+                    hover
+                    onClick={() => handleClick(user.id)}
+                    role="checkbox"
+                    aria-checked={isSelected}
+                    selected={isSelected}
+                    sx={{ "&:last-child td, &:last-child th": { border: 0 }, cursor: 'pointer' }}
+                  >
+                    <TableCell padding="checkbox">
+                      <Checkbox
+                        color="primary"
+                        checked={isSelected}
+                        inputProps={{
+                          "aria-labelledby": `enhanced-table-checkbox-${user.id}`,
+                        }}
+                      />
+                    </TableCell>
+                    <TableCell component="th" scope="row">
+                      {user.displayName}
+                    </TableCell>
+                    {/* --- 5. ADDED USERNAME CELL --- */}
+                    <TableCell>{user.username || "N/A"}</TableCell>
+                    <TableCell>{user.role}</TableCell>
+                    <TableCell>{user.email || "N/A"}</TableCell>
+                    <TableCell>
+                      <code>{user.id}</code>
+                    </TableCell>
+                    <TableCell align="right">
+                      <IconButton
+                        aria-label="more"
+                        onClick={(e) => {
+                          e.stopPropagation(); // Prevent row click
+                          handleMenuOpen(e, user);
+                        }}
+                      >
+                        <MoreVertIcon />
+                      </IconButton>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
           </TableBody>
         </Table>
       </TableContainer>
@@ -452,6 +552,35 @@ export const AdminUserManagement: React.FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
+      
+      {/* --- NEW: BULK DELETE CONFIRMATION DIALOG --- */}
+      <Dialog
+        open={bulkDeleteOpen}
+        onClose={() => setBulkDeleteOpen(false)}
+        fullWidth
+        maxWidth="xs"
+      >
+        <DialogTitle>Delete {selectedIds.length} Users?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Are you sure you want to permanently delete these {selectedIds.length} users? This action cannot be undone.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setBulkDeleteOpen(false)} disabled={bulkDeleteLoading}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleBulkDelete}
+            color="error"
+            variant="contained"
+            disabled={bulkDeleteLoading}
+          >
+            {bulkDeleteLoading ? <CircularProgress size={24} /> : "Delete Selected"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* --- DELETE ALL CONFIRMATION DIALOG --- */}
       <Dialog
         open={isDeleteAllOpen}

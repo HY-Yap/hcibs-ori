@@ -25,6 +25,8 @@ import {
   Divider,
   Menu,
   ListItemIcon,
+  Checkbox,
+  Fade, // ADDED
 } from "@mui/material";
 import { collection, onSnapshot, doc } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
@@ -57,6 +59,11 @@ export const AdminHouseManagement: React.FC = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [assigning, setAssigning] = useState(false);
+
+  // --- NEW: Multi-select State ---
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -95,6 +102,50 @@ export const AdminHouseManagement: React.FC = () => {
       unsubConfig();
     };
   }, []);
+
+  // --- NEW: Multi-select Handlers ---
+  const handleSelectAllClick = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (event.target.checked) {
+      // Cast id to string as we know it exists from Firestore
+      const newSelecteds = houses.map((n) => n.id as string);
+      setSelectedIds(newSelecteds);
+      return;
+    }
+    setSelectedIds([]);
+  };
+
+  const handleClick = (id: string) => {
+    const selectedIndex = selectedIds.indexOf(id);
+    let newSelected: string[] = [];
+
+    if (selectedIndex === -1) {
+      newSelected = newSelected.concat(selectedIds, id);
+    } else if (selectedIndex === 0) {
+      newSelected = newSelected.concat(selectedIds.slice(1));
+    } else if (selectedIndex === selectedIds.length - 1) {
+      newSelected = newSelected.concat(selectedIds.slice(0, -1));
+    } else if (selectedIndex > 0) {
+      newSelected = newSelected.concat(
+        selectedIds.slice(0, selectedIndex),
+        selectedIds.slice(selectedIndex + 1)
+      );
+    }
+    setSelectedIds(newSelected);
+  };
+
+  const handleBulkDelete = async () => {
+    setBulkDeleteLoading(true);
+    try {
+      const deleteFn = httpsCallable(functions, "deleteHouse");
+      await Promise.all(selectedIds.map((id) => deleteFn({ id })));
+      setSelectedIds([]);
+      setBulkDeleteOpen(false);
+    } catch (err: any) {
+      alert("Bulk delete failed: " + err.message);
+    } finally {
+      setBulkDeleteLoading(false);
+    }
+  };
 
   const handleToggleSystem = async (enabled: boolean) => {
     setSystemEnabled(enabled);
@@ -229,14 +280,37 @@ export const AdminHouseManagement: React.FC = () => {
           }}
         >
           <Typography variant="h5">1. Houses</Typography>
-          <Button variant="contained" onClick={handleAddClick}>
-            + Add House
-          </Button>
+          <Box sx={{ display: "flex", gap: 2 }}>
+            <Fade in={selectedIds.length > 0} unmountOnExit>
+              <Button
+                variant="contained"
+                color="error"
+                onClick={() => setBulkDeleteOpen(true)}
+              >
+                Delete Selected ({selectedIds.length})
+              </Button>
+            </Fade>
+            <Button variant="contained" onClick={handleAddClick}>
+              + Add House
+            </Button>
+          </Box>
         </Box>
         <TableContainer component={Paper}>
           <Table size="small">
             <TableHead>
               <TableRow sx={{ bgcolor: "#f4f4f4" }}>
+                <TableCell padding="checkbox">
+                  <Checkbox
+                    color="primary"
+                    indeterminate={
+                      selectedIds.length > 0 && selectedIds.length < houses.length
+                    }
+                    checked={
+                      houses.length > 0 && selectedIds.length === houses.length
+                    }
+                    onChange={handleSelectAllClick}
+                  />
+                </TableCell>
                 <TableCell>House Name</TableCell>
                 <TableCell>Color</TableCell>
                 <TableCell align="right">Actions</TableCell>
@@ -245,40 +319,59 @@ export const AdminHouseManagement: React.FC = () => {
             <TableBody>
               {houses.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={3} align="center">
+                  <TableCell colSpan={4} align="center">
                     No houses created.
                   </TableCell>
                 </TableRow>
               ) : (
-                houses.map((h) => (
-                  <TableRow key={h.id}>
-                    <TableCell sx={{ fontWeight: "bold", fontSize: "1.1rem" }}>
-                      {h.name}
-                    </TableCell>
-                    <TableCell>
-                      <Box
-                        sx={{ display: "flex", alignItems: "center", gap: 1 }}
-                      >
+                houses.map((h) => {
+                  const isSelected = selectedIds.indexOf(h.id as string) !== -1;
+                  return (
+                    <TableRow
+                      key={h.id}
+                      hover
+                      onClick={() => handleClick(h.id as string)}
+                      role="checkbox"
+                      aria-checked={isSelected}
+                      selected={isSelected}
+                      sx={{ cursor: "pointer" }}
+                    >
+                      <TableCell padding="checkbox">
+                        <Checkbox color="primary" checked={isSelected} />
+                      </TableCell>
+                      <TableCell sx={{ fontWeight: "bold", fontSize: "1.1rem" }}>
+                        {h.name}
+                      </TableCell>
+                      <TableCell>
                         <Box
-                          sx={{
-                            width: 24,
-                            height: 24,
-                            borderRadius: "50%",
-                            bgcolor: h.color,
-                            border: "1px solid #ccc",
+                          sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                        >
+                          <Box
+                            sx={{
+                              width: 24,
+                              height: 24,
+                              borderRadius: "50%",
+                              bgcolor: h.color,
+                              border: "1px solid #ccc",
+                            }}
+                          />
+                          {h.color}
+                        </Box>
+                      </TableCell>
+                      <TableCell align="right">
+                        {/* --- MENU BUTTON --- */}
+                        <IconButton
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleMenuOpen(e, h);
                           }}
-                        />
-                        {h.color}
-                      </Box>
-                    </TableCell>
-                    <TableCell align="right">
-                      {/* --- MENU BUTTON --- */}
-                      <IconButton onClick={(e) => handleMenuOpen(e, h)}>
-                        <MoreVertIcon />
-                      </IconButton>
-                    </TableCell>
-                  </TableRow>
-                ))
+                        >
+                          <MoreVertIcon />
+                        </IconButton>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
               )}
             </TableBody>
           </Table>
@@ -389,6 +482,29 @@ export const AdminHouseManagement: React.FC = () => {
             disabled={actionLoading}
           >
             Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={bulkDeleteOpen}
+        onClose={() => setBulkDeleteOpen(false)}
+      >
+        <DialogTitle>Delete {selectedIds.length} Houses?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Are you sure? This will unassign any groups currently in these houses.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setBulkDeleteOpen(false)}>Cancel</Button>
+          <Button
+            onClick={handleBulkDelete}
+            color="error"
+            variant="contained"
+            disabled={bulkDeleteLoading}
+          >
+            {bulkDeleteLoading ? <CircularProgress size={24} /> : "Delete Selected"}
           </Button>
         </DialogActions>
       </Dialog>

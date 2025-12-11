@@ -28,6 +28,8 @@ import {
   InputLabel,
   Select,
   TableSortLabel,
+  Checkbox,
+  Fade, // ADDED
 } from "@mui/material";
 import {
   collection,
@@ -83,6 +85,11 @@ export const AdminStationManagement: React.FC = () => {
   );
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
+
+  // --- NEW: Multi-select State ---
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState<StationType>("ALL");
@@ -188,6 +195,50 @@ export const AdminStationManagement: React.FC = () => {
     setOrderBy(property);
   };
 
+  // --- NEW: Multi-select Handlers ---
+  const handleSelectAllClick = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (event.target.checked) {
+      // Cast id to string
+      const newSelecteds = filteredAndSortedStations.map((n) => n.id as string);
+      setSelectedIds(newSelecteds);
+      return;
+    }
+    setSelectedIds([]);
+  };
+
+  const handleClick = (id: string) => {
+    const selectedIndex = selectedIds.indexOf(id);
+    let newSelected: string[] = [];
+
+    if (selectedIndex === -1) {
+      newSelected = newSelected.concat(selectedIds, id);
+    } else if (selectedIndex === 0) {
+      newSelected = newSelected.concat(selectedIds.slice(1));
+    } else if (selectedIndex === selectedIds.length - 1) {
+      newSelected = newSelected.concat(selectedIds.slice(0, -1));
+    } else if (selectedIndex > 0) {
+      newSelected = newSelected.concat(
+        selectedIds.slice(0, selectedIndex),
+        selectedIds.slice(selectedIndex + 1)
+      );
+    }
+    setSelectedIds(newSelected);
+  };
+
+  const handleBulkDelete = async () => {
+    setBulkDeleteLoading(true);
+    try {
+      const deleteStationFn = httpsCallable(firebaseFunctions, "deleteStation");
+      await Promise.all(selectedIds.map((id) => deleteStationFn({ id })));
+      setSelectedIds([]);
+      setBulkDeleteOpen(false);
+    } catch (err: any) {
+      alert("Bulk delete failed: " + err.message);
+    } finally {
+      setBulkDeleteLoading(false);
+    }
+  };
+
   const handleMenuOpen = (
     event: React.MouseEvent<HTMLElement>,
     station: StationData
@@ -231,9 +282,20 @@ export const AdminStationManagement: React.FC = () => {
     <Box>
       <Box sx={{ display: "flex", justifyContent: "space-between", mb: 2 }}>
         <Typography variant="h4">Station Management</Typography>
-        <Button variant="contained" onClick={handleAddClick}>
-          + Add Station
-        </Button>
+        <Box sx={{ display: "flex", gap: 2 }}>
+          <Fade in={selectedIds.length > 0} unmountOnExit>
+            <Button
+              variant="contained"
+              color="error"
+              onClick={() => setBulkDeleteOpen(true)}
+            >
+              Delete Selected ({selectedIds.length})
+            </Button>
+          </Fade>
+          <Button variant="contained" onClick={handleAddClick}>
+            + Add Station
+          </Button>
+        </Box>
       </Box>
 
       {error && (
@@ -316,6 +378,20 @@ export const AdminStationManagement: React.FC = () => {
         <Table>
           <TableHead>
             <TableRow sx={{ backgroundColor: "#f4f4f4" }}>
+              <TableCell padding="checkbox">
+                <Checkbox
+                  color="primary"
+                  indeterminate={
+                    selectedIds.length > 0 &&
+                    selectedIds.length < filteredAndSortedStations.length
+                  }
+                  checked={
+                    filteredAndSortedStations.length > 0 &&
+                    selectedIds.length === filteredAndSortedStations.length
+                  }
+                  onChange={handleSelectAllClick}
+                />
+              </TableCell>
               <TableCell>
                 <TableSortLabel
                   active={orderBy === "area"}
@@ -376,13 +452,13 @@ export const AdminStationManagement: React.FC = () => {
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={6} align="center">
+                <TableCell colSpan={7} align="center">
                   <CircularProgress />
                 </TableCell>
               </TableRow>
             ) : filteredAndSortedStations.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} align="center">
+                <TableCell colSpan={7} align="center">
                   {stations.length === 0
                     ? "No stations found."
                     : "No stations match filters."}
@@ -396,14 +472,24 @@ export const AdminStationManagement: React.FC = () => {
                 // Determine if we need a separator (new area group)
                 const prevArea = index > 0 ? getStationArea(filteredAndSortedStations[index - 1]) : null;
                 const isNewArea = index > 0 && areaName !== prevArea && orderBy === "area";
+                const isSelected = selectedIds.indexOf(s.id as string) !== -1;
 
                 return (
                 <TableRow 
                   key={s.id}
+                  hover
+                  onClick={() => handleClick(s.id as string)}
+                  role="checkbox"
+                  aria-checked={isSelected}
+                  selected={isSelected}
                   sx={{ 
-                    borderTop: isNewArea ? "3px solid #e0e0e0" : undefined 
+                    borderTop: isNewArea ? "3px solid #e0e0e0" : undefined,
+                    cursor: "pointer"
                   }}
                 >
+                  <TableCell padding="checkbox">
+                    <Checkbox color="primary" checked={isSelected} />
+                  </TableCell>
                   <TableCell>
                     <Chip 
                       label={areaName} 
@@ -452,7 +538,12 @@ export const AdminStationManagement: React.FC = () => {
                     />
                   </TableCell>
                   <TableCell align="right">
-                    <IconButton onClick={(e) => handleMenuOpen(e, s)}>
+                    <IconButton
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleMenuOpen(e, s);
+                      }}
+                    >
                       <MoreVertIcon />
                     </IconButton>
                   </TableCell>
@@ -513,6 +604,29 @@ export const AdminStationManagement: React.FC = () => {
             disabled={deleteLoading}
           >
             {deleteLoading ? <CircularProgress size={24} /> : "Delete"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={bulkDeleteOpen}
+        onClose={() => setBulkDeleteOpen(false)}
+      >
+        <DialogTitle>Delete {selectedIds.length} Stations?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Are you sure? This cannot be undone.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setBulkDeleteOpen(false)}>Cancel</Button>
+          <Button
+            onClick={handleBulkDelete}
+            color="error"
+            variant="contained"
+            disabled={bulkDeleteLoading}
+          >
+            {bulkDeleteLoading ? <CircularProgress size={24} /> : "Delete Selected"}
           </Button>
         </DialogActions>
       </Dialog>

@@ -24,6 +24,7 @@ import {
   Checkbox,
   Snackbar,
   Alert,
+  Fade, // ADDED
 } from "@mui/material";
 import { collection, query, orderBy, onSnapshot } from "firebase/firestore";
 import { getFunctions, httpsCallable } from "firebase/functions";
@@ -66,6 +67,11 @@ export const AdminAnnouncementManagement: React.FC = () => {
   const [deleteAllOpen, setDeleteAllOpen] = useState(false);
   const [deleteAllConfirm, setDeleteAllConfirm] = useState("");
 
+  // --- NEW: Multi-select State ---
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false);
+
   useEffect(() => {
     const q = query(
       collection(db, "announcements"),
@@ -95,6 +101,53 @@ export const AdminAnnouncementManagement: React.FC = () => {
       unsubStations();
     };
   }, []);
+
+  // --- NEW: Multi-select Handlers ---
+  const handleSelectAllClick = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (event.target.checked) {
+      const newSelecteds = announcements.map((n) => n.id);
+      setSelectedIds(newSelecteds);
+      return;
+    }
+    setSelectedIds([]);
+  };
+
+  const handleClick = (id: string) => {
+    const selectedIndex = selectedIds.indexOf(id);
+    let newSelected: string[] = [];
+
+    if (selectedIndex === -1) {
+      newSelected = newSelected.concat(selectedIds, id);
+    } else if (selectedIndex === 0) {
+      newSelected = newSelected.concat(selectedIds.slice(1));
+    } else if (selectedIndex === selectedIds.length - 1) {
+      newSelected = newSelected.concat(selectedIds.slice(0, -1));
+    } else if (selectedIndex > 0) {
+      newSelected = newSelected.concat(
+        selectedIds.slice(0, selectedIndex),
+        selectedIds.slice(selectedIndex + 1)
+      );
+    }
+    setSelectedIds(newSelected);
+  };
+
+  const handleBulkDelete = async () => {
+    setBulkDeleteLoading(true);
+    try {
+      const fn = httpsCallable(
+        getFunctions(undefined, "asia-southeast1"),
+        "deleteAnnouncement"
+      );
+      await Promise.all(selectedIds.map((id) => fn({ id })));
+      setSelectedIds([]);
+      setBulkDeleteOpen(false);
+    } catch (err: any) {
+      alert("Bulk delete failed: " + err.message);
+    } finally {
+      setBulkDeleteLoading(false);
+    }
+  };
+
   // NEW: Helper to format target string
   const formatTarget = (t: string) => {
     if (t.startsWith("SM:")) {
@@ -329,46 +382,106 @@ export const AdminAnnouncementManagement: React.FC = () => {
       </Paper>
 
       <Paper sx={{ mb: 4, overflow: "hidden" }}>
+        {/* --- NEW: Bulk Actions Header --- */}
+        <Box
+          sx={{
+            p: 2,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            bgcolor: "#f5f5f5",
+            borderBottom: "1px solid #e0e0e0",
+          }}
+        >
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={
+                  announcements.length > 0 &&
+                  selectedIds.length === announcements.length
+                }
+                indeterminate={
+                  selectedIds.length > 0 &&
+                  selectedIds.length < announcements.length
+                }
+                onChange={handleSelectAllClick}
+              />
+            }
+            label="Select All"
+          />
+          <Fade in={selectedIds.length > 0} unmountOnExit>
+            <Button
+              variant="contained"
+              color="error"
+              size="small"
+              onClick={() => setBulkDeleteOpen(true)}
+            >
+              Delete Selected ({selectedIds.length})
+            </Button>
+          </Fade>
+        </Box>
+
         <List disablePadding>
           {displayedAnnouncements.length === 0 ? (
             <ListItem>
               <ListItemText primary="No announcements found." />
             </ListItem>
           ) : (
-            displayedAnnouncements.map((ann, index) => (
-              <React.Fragment key={ann.id}>
-                {index > 0 && <Divider />}
-                <ListItem
-                  secondaryAction={
-                    <IconButton
-                      edge="end"
-                      color="error"
-                      onClick={() => handleDeleteSingle(ann.id)}
-                    >
-                      <DeleteIcon />
-                    </IconButton>
-                  }
-                >
-                  <ListItemText
-                    primary={ann.message}
-                    secondary={
-                      <>
-                        <Typography variant="caption" display="block">
-                          {ann.timestamp?.toDate().toLocaleString()}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {/* UPDATED: Use formatTarget to show readable names */}
-                          Targets:{" "}
-                          {ann.targets
-                            ? ann.targets.map(formatTarget).join(", ")
-                            : "ALL"}
-                        </Typography>
-                      </>
+            displayedAnnouncements.map((ann, index) => {
+              const isSelected = selectedIds.indexOf(ann.id) !== -1;
+              return (
+                <React.Fragment key={ann.id}>
+                  {index > 0 && <Divider />}
+                  <ListItem
+                    secondaryAction={
+                      <IconButton
+                        edge="end"
+                        color="error"
+                        onClick={() => handleDeleteSingle(ann.id)}
+                      >
+                        <DeleteIcon />
+                      </IconButton>
                     }
-                  />
-                </ListItem>
-              </React.Fragment>
-            ))
+                    disablePadding
+                  >
+                    <Box
+                      sx={{
+                        display: "flex",
+                        width: "100%",
+                        alignItems: "center",
+                        pl: 2,
+                        py: 1,
+                        bgcolor: isSelected ? "rgba(25, 118, 210, 0.08)" : "inherit",
+                      }}
+                    >
+                      <Checkbox
+                        checked={isSelected}
+                        onChange={() => handleClick(ann.id)}
+                        edge="start"
+                        sx={{ mr: 2 }}
+                      />
+                      <ListItemText
+                        primary={ann.message}
+                        secondary={
+                          <>
+                            <Typography variant="caption" display="block">
+                              {ann.timestamp?.toDate().toLocaleString()}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {/* UPDATED: Use formatTarget to show readable names */}
+                              Targets:{" "}
+                              {ann.targets
+                                ? ann.targets.map(formatTarget).join(", ")
+                                : "ALL"}
+                            </Typography>
+                          </>
+                        }
+                      />
+                    </Box>
+                  </ListItem>
+                </React.Fragment>
+              );
+            })
           )}
         </List>
         {totalPages > 1 && (
@@ -435,6 +548,27 @@ export const AdminAnnouncementManagement: React.FC = () => {
             disabled={deleteAllConfirm !== "DELETE" || actionLoading}
           >
             {actionLoading ? <CircularProgress size={24} /> : "CONFIRM"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* --- NEW: Bulk Delete Dialog --- */}
+      <Dialog open={bulkDeleteOpen} onClose={() => setBulkDeleteOpen(false)}>
+        <DialogTitle>Delete {selectedIds.length} Announcements?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Are you sure you want to delete these announcements?
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setBulkDeleteOpen(false)}>Cancel</Button>
+          <Button
+            onClick={handleBulkDelete}
+            color="error"
+            variant="contained"
+            disabled={bulkDeleteLoading}
+          >
+            {bulkDeleteLoading ? <CircularProgress size={24} /> : "Delete Selected"}
           </Button>
         </DialogActions>
       </Dialog>

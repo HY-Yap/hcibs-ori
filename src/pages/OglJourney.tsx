@@ -512,12 +512,165 @@ export const OglJourney: FC = () => {
                 </Typography>
               )}
             </Box>
-            <Typography
-              paragraph
-              sx={{ whiteSpace: "pre-wrap", color: "text.secondary" }}
-            >
-              {displayDescription || "No description available."}
-            </Typography>
+            
+            {/* MODIFIED: Enhanced Markdown Rendering */}
+            <Box sx={{ mb: 2 }}>
+              {(displayDescription || "No description available.").split("\n").map((line, i) => {
+                const parseStyles = (text: string) => {
+                  // Added _.*?_ for underline
+                  const parts = text.split(
+                    /(\*\*\*.*?\*\*\*|\*\*.*?\*\*|\*.*?\*|_.*?_)/g
+                  );
+                  return parts.map((part, j) => {
+                    if (part.startsWith("***") && part.endsWith("***")) {
+                      return (
+                        <span
+                          key={j}
+                          style={{
+                            fontWeight: "bold",
+                            fontStyle: "italic",
+                          }}
+                        >
+                          {part.slice(3, -3)}
+                        </span>
+                      );
+                    }
+                    if (part.startsWith("**") && part.endsWith("**")) {
+                      return <strong key={j}>{part.slice(2, -2)}</strong>;
+                    }
+                    if (part.startsWith("*") && part.endsWith("*")) {
+                      return <em key={j}>{part.slice(1, -1)}</em>;
+                    }
+                    if (part.startsWith("_") && part.endsWith("_")) {
+                      return <u key={j}>{part.slice(1, -1)}</u>;
+                    }
+                    return <span key={j}>{part}</span>;
+                  });
+                };
+
+                const parseInline = (text: string) => {
+                  const linkParts = text.split(/(\[.*?\]\(.*?\))/g);
+                  return linkParts.map((part, i) => {
+                    const linkMatch = part.match(/^\[(.*?)\]\((.*?)\)$/);
+                    if (linkMatch) {
+                      return (
+                        <a
+                          key={i}
+                          href={linkMatch[2]}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            color: "#1976d2",
+                            textDecoration: "underline",
+                          }}
+                        >
+                          {parseStyles(linkMatch[1])}
+                        </a>
+                      );
+                    }
+                    return parseStyles(part);
+                  });
+                };
+
+                // Headers
+                if (line.startsWith("### "))
+                  return (
+                    <Typography
+                      key={i}
+                      variant="subtitle2"
+                      sx={{
+                        fontWeight: "bold",
+                        mt: 1,
+                        color: "text.primary",
+                      }}
+                    >
+                      {parseInline(line.slice(4))}
+                    </Typography>
+                  );
+                if (line.startsWith("## "))
+                  return (
+                    <Typography
+                      key={i}
+                      variant="subtitle1"
+                      sx={{
+                        fontWeight: "bold",
+                        mt: 1.5,
+                        color: "text.primary",
+                      }}
+                    >
+                      {parseInline(line.slice(3))}
+                    </Typography>
+                  );
+                if (line.startsWith("# "))
+                  return (
+                    <Typography
+                      key={i}
+                      variant="h6"
+                      sx={{
+                        fontWeight: "bold",
+                        mt: 2,
+                        color: "text.primary",
+                      }}
+                    >
+                      {parseInline(line.slice(2))}
+                    </Typography>
+                  );
+
+                // Blockquote
+                if (line.startsWith("> ")) {
+                  return (
+                    <Box
+                      key={i}
+                      sx={{
+                        borderLeft: "4px solid #ccc",
+                        pl: 2,
+                        py: 0.5,
+                        my: 1,
+                        bgcolor: "rgba(0,0,0,0.03)",
+                        fontStyle: "italic",
+                      }}
+                    >
+                      <Typography variant="body2">
+                        {parseInline(line.slice(2))}
+                      </Typography>
+                    </Box>
+                  );
+                }
+
+                // Unordered List
+                if (line.startsWith("- ")) {
+                  return (
+                    <Box key={i} sx={{ display: "flex", ml: 1 }}>
+                      <Typography sx={{ mr: 1 }}>•</Typography>
+                      <Typography variant="body2">
+                        {parseInline(line.slice(2))}
+                      </Typography>
+                    </Box>
+                  );
+                }
+
+                // Ordered List
+                const orderedMatch = line.match(/^(\d+)\.\s(.*)/);
+                if (orderedMatch) {
+                  return (
+                    <Box key={i} sx={{ display: "flex", ml: 1 }}>
+                      <Typography sx={{ mr: 1, fontWeight: "bold" }}>
+                        {orderedMatch[1]}.
+                      </Typography>
+                      <Typography variant="body2">
+                        {parseInline(orderedMatch[2])}
+                      </Typography>
+                    </Box>
+                  );
+                }
+
+                return (
+                  <Typography key={i} paragraph sx={{ whiteSpace: "pre-wrap", color: "text.secondary", mb: 1 }}>
+                    {parseInline(line)}
+                  </Typography>
+                );
+              })}
+            </Box>
 
             <Box
               sx={{ display: "flex", flexDirection: "column", gap: 2, mt: 3 }}

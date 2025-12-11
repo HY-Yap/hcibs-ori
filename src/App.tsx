@@ -12,7 +12,7 @@ import { LeaderboardPage } from "./pages/Leaderboard";
 import { StationsPage } from "./pages/Stations";
 import { SideQuestsPage } from "./pages/SideQuests";
 import { AdminStationManagement } from "./pages/AdminStationManagement";
-import { AdminSideQuestManagement } from "./pages/SideQuestManagement";
+import { SideQuestManagement } from "./pages/SideQuestManagement";
 import { AdminGroupManagement } from "./pages/AdminGroupManagement";
 import { AdminHouseManagement } from "./pages/AdminHouseManagement";
 import { OglJourney } from "./pages/OglJourney";
@@ -60,7 +60,7 @@ function App() {
               />
               <Route
                 path="admin/sidequests"
-                element={<AdminSideQuestManagement />}
+                element={<SideQuestManagement />}
               />
               <Route
                 path="admin/announcements"

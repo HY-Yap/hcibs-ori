@@ -26,6 +26,8 @@ import {
   InputLabel,
   Select,
   TableSortLabel,
+  Checkbox,
+  Fade, // ADDED
 } from "@mui/material";
 import {
   collection,
@@ -48,7 +50,7 @@ type ManagerType = "SM" | "Self" | "ALL";
 type SortableColumn = "name" | "points" | "submissionType" | "isSmManaged";
 type Order = "asc" | "desc";
 
-export const AdminSideQuestManagement: React.FC = () => {
+export const SideQuestManagement: React.FC = () => {
   const [quests, setQuests] = useState<SideQuestData[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setModalOpen] = useState(false);
@@ -60,6 +62,11 @@ export const AdminSideQuestManagement: React.FC = () => {
   );
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
+
+  // --- NEW: Multi-select State ---
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState<SubmissionType>("ALL");
@@ -122,6 +129,52 @@ export const AdminSideQuestManagement: React.FC = () => {
     setOrderBy(property);
   };
 
+  // --- NEW: Multi-select Handlers ---
+  const handleSelectAllClick = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (event.target.checked) {
+      const newSelecteds = filteredAndSortedQuests.map((n) => n.id as string);
+      setSelectedIds(newSelecteds);
+      return;
+    }
+    setSelectedIds([]);
+  };
+
+  const handleClick = (id: string) => {
+    const selectedIndex = selectedIds.indexOf(id);
+    let newSelected: string[] = [];
+
+    if (selectedIndex === -1) {
+      newSelected = newSelected.concat(selectedIds, id);
+    } else if (selectedIndex === 0) {
+      newSelected = newSelected.concat(selectedIds.slice(1));
+    } else if (selectedIndex === selectedIds.length - 1) {
+      newSelected = newSelected.concat(selectedIds.slice(0, -1));
+    } else if (selectedIndex > 0) {
+      newSelected = newSelected.concat(
+        selectedIds.slice(0, selectedIndex),
+        selectedIds.slice(selectedIndex + 1)
+      );
+    }
+    setSelectedIds(newSelected);
+  };
+
+  const handleBulkDelete = async () => {
+    setBulkDeleteLoading(true);
+    try {
+      const deleteSideQuestFn = httpsCallable(
+        firebaseFunctions,
+        "deleteSideQuest"
+      );
+      await Promise.all(selectedIds.map((id) => deleteSideQuestFn({ id })));
+      setSelectedIds([]);
+      setBulkDeleteOpen(false);
+    } catch (err: any) {
+      alert("Bulk delete failed: " + err.message);
+    } finally {
+      setBulkDeleteLoading(false);
+    }
+  };
+
   const handleMenuOpen = (
     event: React.MouseEvent<HTMLElement>,
     quest: SideQuestData
@@ -156,7 +209,6 @@ export const AdminSideQuestManagement: React.FC = () => {
       );
       await deleteSideQuestFn({ id: selectedQuest.id });
       setDeleteDialogOpen(false);
-      // No fetchQuests() needed, onSnapshot will update the table
     } catch (err) {
       console.error(err);
     } finally {
@@ -168,9 +220,20 @@ export const AdminSideQuestManagement: React.FC = () => {
     <Box>
       <Box sx={{ display: "flex", justifyContent: "space-between", mb: 2 }}>
         <Typography variant="h4">Side Quests</Typography>
-        <Button variant="contained" onClick={handleAddClick}>
-          + Add Quest
-        </Button>
+        <Box sx={{ display: "flex", gap: 2 }}>
+          <Fade in={selectedIds.length > 0} unmountOnExit>
+            <Button
+              variant="contained"
+              color="error"
+              onClick={() => setBulkDeleteOpen(true)}
+            >
+              Delete Selected ({selectedIds.length})
+            </Button>
+          </Fade>
+          <Button variant="contained" onClick={handleAddClick}>
+            + Add Quest
+          </Button>
+        </Box>
       </Box>
 
       <Paper sx={{ p: 2, mb: 2 }}>
@@ -247,6 +310,20 @@ export const AdminSideQuestManagement: React.FC = () => {
         <Table>
           <TableHead>
             <TableRow sx={{ backgroundColor: "#f4f4f4" }}>
+              <TableCell padding="checkbox">
+                <Checkbox
+                  color="primary"
+                  indeterminate={
+                    selectedIds.length > 0 &&
+                    selectedIds.length < filteredAndSortedQuests.length
+                  }
+                  checked={
+                    filteredAndSortedQuests.length > 0 &&
+                    selectedIds.length === filteredAndSortedQuests.length
+                  }
+                  onChange={handleSelectAllClick}
+                />
+              </TableCell>
               <TableCell>
                 <TableSortLabel
                   active={orderBy === "name"}
@@ -289,46 +366,65 @@ export const AdminSideQuestManagement: React.FC = () => {
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={5} align="center">
+                <TableCell colSpan={6} align="center">
                   <CircularProgress />
                 </TableCell>
               </TableRow>
             ) : filteredAndSortedQuests.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} align="center">
+                <TableCell colSpan={6} align="center">
                   {quests.length === 0
                     ? "No side quests found."
                     : "No side quests match filters."}
                 </TableCell>
               </TableRow>
             ) : (
-              filteredAndSortedQuests.map((q) => (
-                <TableRow key={q.id}>
-                  <TableCell sx={{ fontWeight: "bold" }}>{q.name}</TableCell>
-                  <TableCell>{q.points}</TableCell>
-                  <TableCell>
-                    <Chip
-                      label={q.submissionType.toUpperCase()}
-                      size="small"
-                      color={
-                        q.submissionType === "photo"
-                          ? "primary"
-                          : q.submissionType === "video"
-                          ? "secondary"
-                          : "default"
-                      }
-                      variant="outlined"
-                      sx={{ fontWeight: "bold" }}
-                    />
-                  </TableCell>
-                  <TableCell>{q.isSmManaged ? "SM" : "Self"}</TableCell>
-                  <TableCell align="right">
-                    <IconButton onClick={(e) => handleMenuOpen(e, q)}>
-                      <MoreVertIcon />
-                    </IconButton>
-                  </TableCell>
-                </TableRow>
-              ))
+              filteredAndSortedQuests.map((q) => {
+                const isSelected = selectedIds.indexOf(q.id as string) !== -1;
+                return (
+                  <TableRow
+                    key={q.id}
+                    hover
+                    onClick={() => handleClick(q.id as string)}
+                    role="checkbox"
+                    aria-checked={isSelected}
+                    selected={isSelected}
+                    sx={{ cursor: "pointer" }}
+                  >
+                    <TableCell padding="checkbox">
+                      <Checkbox color="primary" checked={isSelected} />
+                    </TableCell>
+                    <TableCell sx={{ fontWeight: "bold" }}>{q.name}</TableCell>
+                    <TableCell>{q.points}</TableCell>
+                    <TableCell>
+                      <Chip
+                        label={q.submissionType.toUpperCase()}
+                        size="small"
+                        color={
+                          q.submissionType === "photo"
+                            ? "primary"
+                            : q.submissionType === "video"
+                            ? "secondary"
+                            : "default"
+                        }
+                        variant="outlined"
+                        sx={{ fontWeight: "bold" }}
+                      />
+                    </TableCell>
+                    <TableCell>{q.isSmManaged ? "SM" : "Self"}</TableCell>
+                    <TableCell align="right">
+                      <IconButton
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleMenuOpen(e, q);
+                        }}
+                      >
+                        <MoreVertIcon />
+                      </IconButton>
+                    </TableCell>
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>
@@ -356,8 +452,7 @@ export const AdminSideQuestManagement: React.FC = () => {
       <SideQuestModal
         open={isModalOpen}
         onClose={() => setModalOpen(false)}
-        // --- THIS IS THE FIX ---
-        onSuccess={() => {}} // We pass an empty function, onSnapshot handles the refresh
+        onSuccess={() => {}}
         initialData={questToEdit}
       />
 
@@ -383,6 +478,29 @@ export const AdminSideQuestManagement: React.FC = () => {
             disabled={deleteLoading}
           >
             {deleteLoading ? <CircularProgress size={24} /> : "Delete"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={bulkDeleteOpen}
+        onClose={() => setBulkDeleteOpen(false)}
+      >
+        <DialogTitle>Delete {selectedIds.length} Quests?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Are you sure? This cannot be undone.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setBulkDeleteOpen(false)}>Cancel</Button>
+          <Button
+            onClick={handleBulkDelete}
+            color="error"
+            variant="contained"
+            disabled={bulkDeleteLoading}
+          >
+            {bulkDeleteLoading ? <CircularProgress size={24} /> : "Delete Selected"}
           </Button>
         </DialogActions>
       </Dialog>
