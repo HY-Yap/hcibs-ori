@@ -899,95 +899,125 @@ export const assignOglToGroup = onCall(
 // ===================================================================
 export const oglStartTravel = onCall(
   async (request: CallableRequest<{ stationId: string; eta: string }>) => {
-    if (!request.auth)
-      throw new HttpsError("unauthenticated", "Must be logged in.");
+    if (!request.auth) throw new HttpsError("unauthenticated", "Must be logged in.");
 
-    // (Keep existing permission checks...)
-    const userDoc = await admin
-      .firestore()
-      .collection("users")
-      .doc(request.auth.uid)
-      .get();
-    if (userDoc.data()?.role !== "OGL")
-      throw new HttpsError("permission-denied", "Only OGLs.");
+    // Helper logic inlined for transaction safety scope
+    const db = admin.firestore();
+    const userDoc = await db.collection("users").doc(request.auth.uid).get();
+    if (userDoc.data()?.role !== "OGL") throw new HttpsError("permission-denied", "Only OGLs.");
     const groupId = userDoc.data()?.groupId;
-    if (!groupId)
-      throw new HttpsError("failed-precondition", "No group assigned.");
+    if (!groupId) throw new HttpsError("failed-precondition", "No group assigned.");
 
     const { stationId, eta } = request.data;
-    if (!stationId || !eta)
-      throw new HttpsError("invalid-argument", "Missing data.");
-
-    const stationDoc = await admin
-      .firestore()
-      .collection("stations")
-      .doc(stationId)
-      .get();
-    if (stationDoc.data()?.status !== "OPEN")
-      throw new HttpsError("failed-precondition", "Station closed.");
-
-    const groupDoc = await admin
-      .firestore()
-      .collection("groups")
-      .doc(groupId)
-      .get();
-    const groupName = groupDoc.data()?.name || "Unknown Group";
-    const stationName = stationDoc.data()?.name || "Unknown Station";
+    if (!stationId || !eta) throw new HttpsError("invalid-argument", "Missing data.");
 
     try {
-      const batch = admin.firestore().batch();
+      // START ATOMIC TRANSACTION
+      await db.runTransaction(async (t) => {
+        // 1. READ: Get fresh data for Station and Group
+        // (We MUST do reads before writes in a transaction)
+        const stationRef = db.collection("stations").doc(stationId);
+        const groupRef = db.collection("groups").doc(groupId);
+        
+        const stationSnap = await t.get(stationRef);
+        const groupSnap = await t.get(groupRef);
 
-      // 1. Update Group Status
-      batch.update(admin.firestore().collection("groups").doc(groupId), {
-        status: "TRAVELING",
-        destinationId: stationId,
-        destinationEta: eta,
+        if (!stationSnap.exists) throw new HttpsError("not-found", "Station not found.");
+        const sData = stationSnap.data();
+        const targetArea = sData?.area || "Others"; // ADDED
+
+        // 2. LOGIC CHECKS (The "Gatekeeper")
+        if (sData?.status !== "OPEN") {
+             throw new HttpsError("failed-precondition", "Station is closed.");
+        }
+        
+        // --- THE RACE CONDITION FIX ---
+        // We check the LIVE count inside the frozen transaction
+        const currentTraffic = sData?.travelingCount || 0;
+        const MAX_GROUPS = 3; // Hard limit
+
+        if (currentTraffic >= MAX_GROUPS) {
+            throw new HttpsError("resource-exhausted", "Station is full! Please choose another.");
+        }
+
+        // --- NEW: AREA CAPACITY CHECK (RACE CONDITION FIX) ---
+        if (targetArea !== "Others") {
+            // Query all stations in this area within the transaction
+            const areaQuery = db.collection("stations").where("area", "==", targetArea);
+            const areaSnaps = await t.get(areaQuery);
+            
+            let currentAreaOccupancy = 0;
+            areaSnaps.forEach(doc => {
+                const d = doc.data();
+                // Sum up traveling + arrived for each station in the area
+                currentAreaOccupancy += (d.travelingCount || 0) + (d.arrivedCount || 0);
+            });
+
+            const MAX_AREA_GROUPS = 8;
+            if (currentAreaOccupancy >= MAX_AREA_GROUPS) {
+                 throw new HttpsError("resource-exhausted", `Area '${targetArea}' is full (8/8 groups)!`);
+            }
+        }
+
+        // Check if group is already busy (prevent double-clicking)
+        if (groupSnap.data()?.status === 'TRAVELING') {
+            throw new HttpsError("failed-precondition", "You are already traveling!");
+        }
+
+        // 3. WRITES (If we passed the checks)
+        
+        // Update Group
+        t.update(groupRef, {
+          status: 'TRAVELING', 
+          destinationId: stationId, 
+          destinationEta: eta,
+        });
+
+        // Update Station Count
+        t.update(stationRef, {
+            travelingCount: admin.firestore.FieldValue.increment(1)
+        });
+
+        // Setup Chat
+        const chatId = `chat_${groupId}_${stationId}`;
+        const chatRef = db.collection("chats").doc(chatId);
+        t.set(chatRef, {
+            groupId,
+            stationId,
+            groupName: groupSnap.data()?.name || "Group",
+            stationName: sData?.name || "Station",
+            isActive: true,
+            lastMessage: "Trip started",
+            lastMessageTime: admin.firestore.FieldValue.serverTimestamp(),
+            unreadCountSM: 1,
+            unreadCountOGL: 0
+        }, { merge: true });
+
+        // Announcement
+        const message = `${groupSnap.data()?.name} is heading towards your station (ETA: ${eta}).`;
+        const announceRef = db.collection("announcements").doc();
+        t.set(announceRef, {
+          message: message,
+          targets: [`SM:${stationId}`], 
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+          createdBy: "SYSTEM",
+        });
       });
 
-      // 2. Update Station Counter
-      batch.update(admin.firestore().collection("stations").doc(stationId), {
-        travelingCount: admin.firestore.FieldValue.increment(1),
-      });
-
-      // 3. CREATE/RESET CHAT (NEW!)
-      const chatId = `chat_${groupId}_${stationId}`;
-      const chatRef = admin.firestore().collection("chats").doc(chatId);
-      batch.set(
-        chatRef,
-        {
-          groupId,
-          stationId,
-          groupName,
-          stationName,
-          isActive: true, // <--- Chat is now LIVE
-          lastMessage: "Trip started",
-          lastMessageTime: admin.firestore.FieldValue.serverTimestamp(),
-          unreadCountSM: 1, // Alert the SM
-          unreadCountOGL: 0,
-        },
-        { merge: true }
-      );
-
-      // 4. Send Announcement to SM
-      const message = `${groupName} is heading towards your station (ETA: ${eta}).`;
-      const announceRef = admin.firestore().collection("announcements").doc();
-      batch.set(announceRef, {
-        message: message,
-        targets: [`SM:${stationId}`],
-        timestamp: admin.firestore.FieldValue.serverTimestamp(),
-        createdBy: "SYSTEM",
-      });
-
-      await batch.commit();
-
-      // Notify SM
-      // Assuming you have notifyStationMaster defined from previous steps
-      // if not, use the logic from makeAnnouncement or the helper I gave before
-      await notifyStationMaster(stationId, message);
+      // 4. NON-TRANSACTIONAL ACTIONS (Push Notifications)
+      // These happen only if the transaction succeeds
+      // We reconstruct the message since we can't export it from the transaction easily
+      const groupName = (await db.collection("groups").doc(groupId).get()).data()?.name;
+      const msg = `${groupName} is heading towards your station (ETA: ${eta}).`;
+      await notifyStationMaster(stationId, msg);
 
       return { success: true };
+      
     } catch (error: any) {
-      throw new HttpsError("internal", error.message);
+      // If the transaction failed (e.g. station full), we catch it here
+      console.error("Travel error:", error);
+      // Pass the specific error (like "Station is full") back to the frontend
+      throw new HttpsError(error.code || "internal", error.message);
     }
   }
 );
