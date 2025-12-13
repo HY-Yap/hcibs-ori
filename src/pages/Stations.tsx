@@ -202,6 +202,11 @@ export const StationsPage: FC = () => {
                   : theme.palette.info.main;
                 
                 const headerText = theme.palette.getContrastText(headerColor);
+                // Use only DB description; no default for manned stations
+                const effectiveDescription =
+                  station.description && station.description.trim() !== ""
+                    ? station.description
+                    : "";
 
                 return (
                   <Grid size={{ xs: 12, sm: 6, md: 4 }} key={station.id}>
@@ -323,7 +328,7 @@ export const StationsPage: FC = () => {
                           component="div"
                         >
                           {/* MODIFIED: Enhanced Markdown Rendering */}
-                          {(station.description || "").split("\n").map((line, i) => {
+                            {(effectiveDescription || "").split("\n").map((line, i) => {
                             const parseStyles = (text: string) => {
                               // Added _.*?_ for underline
                               const parts = text.split(

@@ -2308,24 +2308,22 @@ export const getPublicGameInfo = onRequest(
         admin.firestore().collection("stations").get(),
         admin.firestore().collection("sideQuests").get()
       ]);
-
-      // Process Stations (Hide secret descriptions!)
+      // Process Stations
       const stations = stationsSnap.docs.map(d => {
         const data = d.data();
         return {
           id: d.id,
           name: data.name,
           type: data.type,
-          points: data.points || 50, // Default if missing
+          points: data.points || 50,
           location: data.location,
-          area: data.area, // <--- ADDED: Expose area field to frontend
-          // CRITICAL: Hide description if manned
-          description: data.type === 'manned' 
-            ? "Game will be conducted by the Station Master." 
-            : data.description
+          area: data.area,
+          
+          // LOGIC: If data.description is "" (or null/undefined), use the default.
+          // Otherwise, use the text from the DB.
+          description: data.description || "Game will be conducted by the Station Master."
         };
       }).sort((a, b) => a.name.localeCompare(b.name));
-
       // Process Side Quests
       const sideQuests = questsSnap.docs.map(d => {
         const data = d.data();
