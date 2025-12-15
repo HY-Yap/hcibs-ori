@@ -549,26 +549,44 @@ export const OglJourney: FC = () => {
                 };
 
                 const parseInline = (text: string) => {
-                  const linkParts = text.split(/(\[.*?\]\(.*?\))/g);
-                  return linkParts.map((part, i) => {
-                    const linkMatch = part.match(/^\[(.*?)\]\((.*?)\)$/);
-                    if (linkMatch) {
+                  // Split by images first
+                  const parts = text.split(/(<img src=".*?">)/g);
+
+                  return parts.map((part, i) => {
+                    const imgMatch = part.match(/^<img src="(.*?)">$/);
+                    if (imgMatch) {
                       return (
-                        <a
-                          key={i}
-                          href={linkMatch[2]}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={{
-                            color: "#1976d2",
-                            textDecoration: "underline",
-                          }}
-                        >
-                          {parseStyles(linkMatch[1])}
-                        </a>
+                        <Box
+                          key={`img-${i}`}
+                          component="img"
+                          src={imgMatch[1]}
+                          alt="Markdown Image"
+                          sx={{ maxWidth: "100%", borderRadius: 1, my: 1, display: "block" }}
+                        />
                       );
                     }
-                    return parseStyles(part);
+
+                    const linkParts = part.split(/(\[.*?\]\(.*?\))/g);
+                    return linkParts.map((subPart, j) => {
+                      const linkMatch = subPart.match(/^\[(.*?)\]\((.*?)\)$/);
+                      if (linkMatch) {
+                        return (
+                          <a
+                            key={`link-${i}-${j}`}
+                            href={linkMatch[2]}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              color: "#1976d2",
+                              textDecoration: "underline",
+                            }}
+                          >
+                            {parseStyles(linkMatch[1])}
+                          </a>
+                        );
+                      }
+                      return parseStyles(subPart);
+                    });
                   });
                 };
 
