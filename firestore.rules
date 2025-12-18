@@ -32,7 +32,10 @@ service cloud.firestore {
     }
     match /announcements/{msgId} {
       allow read: if isSignedIn();
-      allow write: if false;
+      // Allow creation if user is OGL or SM (for help requests)
+      allow create: if isSignedIn() && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['OGL', 'SM', 'ADMIN'];
+      allow update, delete: if false;
     }
     match /scoreLog/{logId} {
       allow read: if isSignedIn();

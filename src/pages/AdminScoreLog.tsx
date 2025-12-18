@@ -353,7 +353,15 @@ export const AdminScoreLog: FC = () => {
 
                     {/* --- SOURCE NAME (Now reliably populated) --- */}
                     <TableCell sx={{ fontSize: "0.85rem" }}>
-                      {allSourcesMap[log.sourceId] || log.sourceId || "-"}
+                      {log.sourceId === "ADMIN"
+                        ? "Admin"
+                        : allSourcesMap[log.sourceId]
+                        ? allSourcesMap[log.sourceId]
+                        : log.type === "STATION"
+                        ? "Unknown Station"
+                        : log.type === "SIDE_QUEST"
+                        ? "Unknown Side Quest"
+                        : log.sourceId || "-"}
                     </TableCell>
 
                     <TableCell>

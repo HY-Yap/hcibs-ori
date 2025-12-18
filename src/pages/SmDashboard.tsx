@@ -55,6 +55,8 @@ interface GroupData {
   status: "IDLE" | "TRAVELING" | "ARRIVED" | "ON_LUNCH";
   destinationEta?: string;
   totalScore: number;
+  completedStations?: string[];
+  destinationId?: string;
 }
 
 interface AnnouncementData {
@@ -77,6 +79,8 @@ export const SmDashboard: React.FC = () => {
   const [stationData, setStationData] = useState<StationData | null>(null);
   const [onTheWayGroups, setOnTheWayGroups] = useState<GroupData[]>([]);
   const [arrivedGroups, setArrivedGroups] = useState<GroupData[]>([]);
+  const [scoredGroups, setScoredGroups] = useState<GroupData[]>([]);
+  const [yetToDepartGroups, setYetToDepartGroups] = useState<GroupData[]>([]);
 
   const [announcements, setAnnouncements] = useState<AnnouncementData[]>([]);
   const [page, setPage] = useState(1);
@@ -150,16 +154,31 @@ export const SmDashboard: React.FC = () => {
   // Listen to Queues
   useEffect(() => {
     if (!stationId) return;
-    const q = query(
-      collection(db, "groups"),
-      where("destinationId", "==", stationId)
-    );
+    const q = collection(db, "groups");
     const unsub = onSnapshot(q, (snapshot) => {
       const allGroups = snapshot.docs.map(
         (d) => ({ id: d.id, ...d.data() } as GroupData)
       );
-      setOnTheWayGroups(allGroups.filter((g) => g.status === "TRAVELING"));
-      setArrivedGroups(allGroups.filter((g) => g.status === "ARRIVED"));
+      setOnTheWayGroups(
+        allGroups.filter(
+          (g) => g.destinationId === stationId && g.status === "TRAVELING"
+        )
+      );
+      setArrivedGroups(
+        allGroups.filter(
+          (g) => g.destinationId === stationId && g.status === "ARRIVED"
+        )
+      );
+      setScoredGroups(
+        allGroups.filter((g) => g.completedStations?.includes(stationId))
+      );
+      setYetToDepartGroups(
+        allGroups.filter(
+          (g) =>
+            !g.completedStations?.includes(stationId) &&
+            g.destinationId !== stationId
+        )
+      );
     });
     return () => unsub();
   }, [stationId]);
@@ -539,6 +558,75 @@ export const SmDashboard: React.FC = () => {
                       secondary="Ready for activity"
                     />
                   </ListItemButton>
+                </ListItem>
+              ))
+            )}
+          </List>
+        </Paper>
+      </Box>
+
+      {/* ADDITIONAL LISTS: SCORED & YET TO DEPART */}
+      <Box
+        sx={{
+          display: "flex",
+          flexDirection: { xs: "column", md: "row" },
+          gap: 3,
+          mt: 3,
+        }}
+      >
+        <Paper sx={{ flex: 1, p: 2, bgcolor: "#e8f5e9", minHeight: 300 }}>
+          <Typography variant="h6" gutterBottom>
+            ✅ Scored ({scoredGroups.length})
+          </Typography>
+          <Divider />
+          <List>
+            {scoredGroups.length === 0 ? (
+              <ListItem>
+                <ListItemText secondary="No groups scored yet." />
+              </ListItem>
+            ) : (
+              scoredGroups.map((group) => (
+                <ListItem
+                  key={group.id}
+                  sx={{
+                    bgcolor: "white",
+                    mb: 1,
+                    borderRadius: 1,
+                    boxShadow: 1,
+                  }}
+                >
+                  <ListItemText primary={group.name} secondary="Completed" />
+                </ListItem>
+              ))
+            )}
+          </List>
+        </Paper>
+
+        <Paper sx={{ flex: 1, p: 2, bgcolor: "#fff3e0", minHeight: 300 }}>
+          <Typography variant="h6" gutterBottom>
+            ⏳ Yet To Depart ({yetToDepartGroups.length})
+          </Typography>
+          <Divider />
+          <List>
+            {yetToDepartGroups.length === 0 ? (
+              <ListItem>
+                <ListItemText secondary="No groups pending." />
+              </ListItem>
+            ) : (
+              yetToDepartGroups.map((group) => (
+                <ListItem
+                  key={group.id}
+                  sx={{
+                    bgcolor: "white",
+                    mb: 1,
+                    borderRadius: 1,
+                    boxShadow: 1,
+                  }}
+                >
+                  <ListItemText
+                    primary={group.name}
+                    secondary="Not visited yet"
+                  />
                 </ListItem>
               ))
             )}

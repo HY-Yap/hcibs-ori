@@ -3,6 +3,7 @@ import { Outlet } from "react-router-dom";
 import { Header } from "./Header";
 import { Box } from "@mui/material";
 import { useAuth } from "../context/AuthContext";
+import { HelpRequestModal } from "./HelpRequestModal";
 
 export const Layout: FC = () => {
   const { profile } = useAuth(); // Removed currentUser, not needed for layout logic anymore
@@ -18,6 +19,8 @@ export const Layout: FC = () => {
       >
         <Outlet />
       </Box>
+
+      <HelpRequestModal />
 
       {/* REMOVED: Snackbar component */}
 

@@ -214,19 +214,6 @@ export const OglJourney: FC = () => {
         (d) => ({ id: d.id, ...d.data() } as StationData)
       );
 
-      // Inject Marina Barrage if not present (since it's not a real station in DB)
-      if (!fetchedStations.find((s) => s.name === "Marina Barrage")) {
-        fetchedStations.push({
-          id: "marina_barrage", // Virtual ID
-          name: "Marina Barrage",
-          type: "ending_location",
-          status: "OPEN",
-          travelingCount: 0,
-          arrivedCount: 0,
-          description: "Dinner Location",
-          points: 0,
-        });
-      }
 
       setStations(fetchedStations);
     });

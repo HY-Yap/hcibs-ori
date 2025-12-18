@@ -60,19 +60,7 @@ export const StationsPage: FC = () => {
         if (!res.ok) throw new Error("Failed to load");
         const data = await res.json();
 
-        // Inject Marina Barrage if missing (Safety fallback)
         const stationsList = data.stations as StationData[];
-        if (!stationsList.find((s) => s.name === "Marina Barrage")) {
-          stationsList.push({
-            id: "marina_barrage_virtual",
-            name: "Marina Barrage",
-            type: "ending_location",
-            location: "Marina Barrage",
-            description: "Dinner Location",
-            points: 0,
-            area: "Others", // ADDED
-          });
-        }
 
         const sorted = stationsList.sort((a: StationData, b: StationData) => {
           const areaA = getStationArea(a);
