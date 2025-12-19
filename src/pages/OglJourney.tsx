@@ -22,6 +22,7 @@ import {
   Divider,
   Badge,
   ListSubheader, // Added
+  Grid, // Added
 } from "@mui/material";
 import { useAuth } from "../context/AuthContext";
 import {
@@ -67,10 +68,13 @@ interface StationData {
   arrivedCount: number;
   description?: string;
   points?: number;
+  minPoints?: number; // ADDED
+  maxPoints?: number; // ADDED
   // ADDED
   hasSecondStage?: boolean;
   secondDescription?: string;
   area?: string; // ADDED
+  bonusType?: "none" | "early-bird" | "late-game";
 }
 interface GroupData {
   name: string;
@@ -80,6 +84,189 @@ interface GroupData {
   // ADDED
   stageOneCompletedStations?: string[];
 }
+
+// ADDED: Markdown Renderer Component
+const MarkdownRenderer = ({ text }: { text: string }) => {
+  if (!text) return null;
+
+  return (
+    <Box sx={{ mb: 2 }}>
+      {text.split("\n").map((line, i) => {
+        const parseStyles = (text: string) => {
+          // Added _.*?_ for underline
+          const parts = text.split(
+            /(\*\*\*.*?\*\*\*|\*\*.*?\*\*|\*.*?\*|_.*?_)/g
+          );
+          return parts.map((part, j) => {
+            if (part.startsWith("***") && part.endsWith("***")) {
+              return (
+                <span
+                  key={j}
+                  style={{
+                    fontWeight: "bold",
+                    fontStyle: "italic",
+                  }}
+                >
+                  {part.slice(3, -3)}
+                </span>
+              );
+            }
+            if (part.startsWith("**") && part.endsWith("**")) {
+              return <strong key={j}>{part.slice(2, -2)}</strong>;
+            }
+            if (part.startsWith("*") && part.endsWith("*")) {
+              return <em key={j}>{part.slice(1, -1)}</em>;
+            }
+            if (part.startsWith("_") && part.endsWith("_")) {
+              return <u key={j}>{part.slice(1, -1)}</u>;
+            }
+            return <span key={j}>{part}</span>;
+          });
+        };
+
+        const parseInline = (text: string) => {
+          // Split by images first
+          const parts = text.split(/(<img src=".*?">)/g);
+
+          return parts.map((part, i) => {
+            const imgMatch = part.match(/^<img src="(.*?)">$/);
+            if (imgMatch) {
+              return (
+                <Box
+                  key={`img-${i}`}
+                  component="img"
+                  src={imgMatch[1]}
+                  alt="Markdown Image"
+                  sx={{ maxWidth: "100%", borderRadius: 1, my: 1, display: "block" }}
+                />
+              );
+            }
+
+            const linkParts = part.split(/(\[.*?\]\(.*?\))/g);
+            return linkParts.map((subPart, j) => {
+              const linkMatch = subPart.match(/^\[(.*?)\]\((.*?)\)$/);
+              if (linkMatch) {
+                return (
+                  <a
+                    key={`link-${i}-${j}`}
+                    href={linkMatch[2]}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      color: "#1976d2",
+                      textDecoration: "underline",
+                    }}
+                  >
+                    {parseStyles(linkMatch[1])}
+                  </a>
+                );
+              }
+              return parseStyles(subPart);
+            });
+          });
+        };
+
+        // Headers
+        if (line.startsWith("### "))
+          return (
+            <Typography
+              key={i}
+              variant="subtitle2"
+              sx={{
+                fontWeight: "bold",
+                mt: 1,
+                color: "text.primary",
+              }}
+            >
+              {parseInline(line.slice(4))}
+            </Typography>
+          );
+        if (line.startsWith("## "))
+          return (
+            <Typography
+              key={i}
+              variant="subtitle1"
+              sx={{
+                fontWeight: "bold",
+                mt: 1.5,
+                color: "text.primary",
+              }}
+            >
+              {parseInline(line.slice(3))}
+            </Typography>
+          );
+        if (line.startsWith("# "))
+          return (
+            <Typography
+              key={i}
+              variant="h6"
+              sx={{
+                fontWeight: "bold",
+                mt: 2,
+                color: "text.primary",
+              }}
+            >
+              {parseInline(line.slice(2))}
+            </Typography>
+          );
+
+        // Blockquote
+        if (line.startsWith("> ")) {
+          return (
+            <Box
+              key={i}
+              sx={{
+                borderLeft: "4px solid #ccc",
+                pl: 2,
+                py: 0.5,
+                my: 1,
+                bgcolor: "rgba(0,0,0,0.03)",
+                fontStyle: "italic",
+              }}
+            >
+              <Typography variant="body2">
+                {parseInline(line.slice(2))}
+              </Typography>
+            </Box>
+          );
+        }
+
+        // Unordered List
+        if (line.startsWith("- ")) {
+          return (
+            <Box key={i} sx={{ display: "flex", ml: 1 }}>
+              <Typography sx={{ mr: 1 }}>•</Typography>
+              <Typography variant="body2">
+                {parseInline(line.slice(2))}
+              </Typography>
+            </Box>
+          );
+        }
+
+        // Ordered List
+        const orderedMatch = line.match(/^(\d+)\.\s(.*)/);
+        if (orderedMatch) {
+          return (
+            <Box key={i} sx={{ display: "flex", ml: 1 }}>
+              <Typography sx={{ mr: 1, fontWeight: "bold" }}>
+                {orderedMatch[1]}.
+              </Typography>
+              <Typography variant="body2">
+                {parseInline(orderedMatch[2])}
+              </Typography>
+            </Box>
+          );
+        }
+
+        return (
+          <Typography key={i} paragraph sx={{ whiteSpace: "pre-wrap", color: "text.secondary", mb: 1 }}>
+            {parseInline(line)}
+          </Typography>
+        );
+      })}
+    </Box>
+  );
+};
 
 export const OglJourney: FC = () => {
   const { profile, gameStatus } = useAuth();
@@ -343,6 +530,26 @@ export const OglJourney: FC = () => {
           Destination: <strong>{dest?.name || "Unknown"}</strong>
         </Typography>
 
+        {dest && dest.type !== "ending_location" && (
+          <Typography variant="subtitle1" color="primary" gutterBottom sx={{ fontWeight: "bold" }}>
+            Potential Points: {(() => {
+                const min = dest.minPoints ?? dest.points ?? 0;
+                const max = dest.maxPoints ?? dest.points ?? 0;
+                return min === max ? `${min}` : `${min}-${max}`;
+            })()}
+          </Typography>
+        )}
+
+        {/* ADDED: Station Details while Traveling */}
+        {dest && (
+          <Paper sx={{ p: 2, mb: 3, bgcolor: "#f5f5f5", textAlign: "left", maxHeight: 300, overflowY: "auto" }}>
+            <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: "bold", color: "text.secondary", textTransform: "uppercase", letterSpacing: 1 }}>
+              Station Details
+            </Typography>
+            <MarkdownRenderer text={dest.description || "No description available."} />
+          </Paper>
+        )}
+
         {isDestinationManned && (
           <Box sx={{ mt: 2, mb: 2 }}>
             <Button
@@ -486,7 +693,11 @@ export const OglJourney: FC = () => {
                 color="primary.main"
                 sx={{ fontWeight: "bold" }}
               >
-                REWARD: {currentStation?.points || 0} POINTS
+                REWARD: {(() => {
+                    const min = currentStation?.minPoints ?? currentStation?.points ?? 0;
+                    const max = currentStation?.maxPoints ?? currentStation?.points ?? 0;
+                    return min === max ? `${min} POINTS` : `${min}-${max} POINTS`;
+                })()}
               </Typography>
               {/* ADDED: Warning Text */}
               {isPrereqMissing && (
@@ -501,181 +712,7 @@ export const OglJourney: FC = () => {
             </Box>
             
             {/* MODIFIED: Enhanced Markdown Rendering */}
-            <Box sx={{ mb: 2 }}>
-              {(displayDescription || "No description available.").split("\n").map((line, i) => {
-                const parseStyles = (text: string) => {
-                  // Added _.*?_ for underline
-                  const parts = text.split(
-                    /(\*\*\*.*?\*\*\*|\*\*.*?\*\*|\*.*?\*|_.*?_)/g
-                  );
-                  return parts.map((part, j) => {
-                    if (part.startsWith("***") && part.endsWith("***")) {
-                      return (
-                        <span
-                          key={j}
-                          style={{
-                            fontWeight: "bold",
-                            fontStyle: "italic",
-                          }}
-                        >
-                          {part.slice(3, -3)}
-                        </span>
-                      );
-                    }
-                    if (part.startsWith("**") && part.endsWith("**")) {
-                      return <strong key={j}>{part.slice(2, -2)}</strong>;
-                    }
-                    if (part.startsWith("*") && part.endsWith("*")) {
-                      return <em key={j}>{part.slice(1, -1)}</em>;
-                    }
-                    if (part.startsWith("_") && part.endsWith("_")) {
-                      return <u key={j}>{part.slice(1, -1)}</u>;
-                    }
-                    return <span key={j}>{part}</span>;
-                  });
-                };
-
-                const parseInline = (text: string) => {
-                  // Split by images first
-                  const parts = text.split(/(<img src=".*?">)/g);
-
-                  return parts.map((part, i) => {
-                    const imgMatch = part.match(/^<img src="(.*?)">$/);
-                    if (imgMatch) {
-                      return (
-                        <Box
-                          key={`img-${i}`}
-                          component="img"
-                          src={imgMatch[1]}
-                          alt="Markdown Image"
-                          sx={{ maxWidth: "100%", borderRadius: 1, my: 1, display: "block" }}
-                        />
-                      );
-                    }
-
-                    const linkParts = part.split(/(\[.*?\]\(.*?\))/g);
-                    return linkParts.map((subPart, j) => {
-                      const linkMatch = subPart.match(/^\[(.*?)\]\((.*?)\)$/);
-                      if (linkMatch) {
-                        return (
-                          <a
-                            key={`link-${i}-${j}`}
-                            href={linkMatch[2]}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{
-                              color: "#1976d2",
-                              textDecoration: "underline",
-                            }}
-                          >
-                            {parseStyles(linkMatch[1])}
-                          </a>
-                        );
-                      }
-                      return parseStyles(subPart);
-                    });
-                  });
-                };
-
-                // Headers
-                if (line.startsWith("### "))
-                  return (
-                    <Typography
-                      key={i}
-                      variant="subtitle2"
-                      sx={{
-                        fontWeight: "bold",
-                        mt: 1,
-                        color: "text.primary",
-                      }}
-                    >
-                      {parseInline(line.slice(4))}
-                    </Typography>
-                  );
-                if (line.startsWith("## "))
-                  return (
-                    <Typography
-                      key={i}
-                      variant="subtitle1"
-                      sx={{
-                        fontWeight: "bold",
-                        mt: 1.5,
-                        color: "text.primary",
-                      }}
-                    >
-                      {parseInline(line.slice(3))}
-                    </Typography>
-                  );
-                if (line.startsWith("# "))
-                  return (
-                    <Typography
-                      key={i}
-                      variant="h6"
-                      sx={{
-                        fontWeight: "bold",
-                        mt: 2,
-                        color: "text.primary",
-                      }}
-                    >
-                      {parseInline(line.slice(2))}
-                    </Typography>
-                  );
-
-                // Blockquote
-                if (line.startsWith("> ")) {
-                  return (
-                    <Box
-                      key={i}
-                      sx={{
-                        borderLeft: "4px solid #ccc",
-                        pl: 2,
-                        py: 0.5,
-                        my: 1,
-                        bgcolor: "rgba(0,0,0,0.03)",
-                        fontStyle: "italic",
-                      }}
-                    >
-                      <Typography variant="body2">
-                        {parseInline(line.slice(2))}
-                      </Typography>
-                    </Box>
-                  );
-                }
-
-                // Unordered List
-                if (line.startsWith("- ")) {
-                  return (
-                    <Box key={i} sx={{ display: "flex", ml: 1 }}>
-                      <Typography sx={{ mr: 1 }}>•</Typography>
-                      <Typography variant="body2">
-                        {parseInline(line.slice(2))}
-                      </Typography>
-                    </Box>
-                  );
-                }
-
-                // Ordered List
-                const orderedMatch = line.match(/^(\d+)\.\s(.*)/);
-                if (orderedMatch) {
-                  return (
-                    <Box key={i} sx={{ display: "flex", ml: 1 }}>
-                      <Typography sx={{ mr: 1, fontWeight: "bold" }}>
-                        {orderedMatch[1]}.
-                      </Typography>
-                      <Typography variant="body2">
-                        {parseInline(orderedMatch[2])}
-                      </Typography>
-                    </Box>
-                  );
-                }
-
-                return (
-                  <Typography key={i} paragraph sx={{ whiteSpace: "pre-wrap", color: "text.secondary", mb: 1 }}>
-                    {parseInline(line)}
-                  </Typography>
-                );
-              })}
-            </Box>
+            <MarkdownRenderer text={displayDescription || "No description available."} />
 
             <Box
               sx={{ display: "flex", flexDirection: "column", gap: 2, mt: 3 }}
@@ -844,6 +881,32 @@ export const OglJourney: FC = () => {
           Go on Lunch
         </Button>
       </Box>
+
+      {/* BONUS LEGEND */}
+      <Paper sx={{ p: 2, mb: 2, bgcolor: "#fff3e0", border: "1px dashed #ffb74d" }}>
+        <Typography variant="subtitle2" fontWeight="bold" color="#e65100" gutterBottom>
+          Active Bonuses
+        </Typography>
+        <Grid container spacing={2}>
+          <Grid size={{ xs: 6 }}>
+            <Typography variant="caption" display="block" fontWeight="bold" color="#e65100">
+              Early-Bird (Before 3:30 PM)
+            </Typography>
+            <Typography variant="caption" display="block" color="text.secondary">
+              Manned: +150 pts | Unmanned: +100 pts
+            </Typography>
+          </Grid>
+          <Grid size={{ xs: 6 }}>
+            <Typography variant="caption" display="block" fontWeight="bold" color="#e65100">
+              Late-Game (After 3:30 PM)
+            </Typography>
+            <Typography variant="caption" display="block" color="text.secondary">
+              Manned: +200 pts | Unmanned: +100 pts
+            </Typography>
+          </Grid>
+        </Grid>
+      </Paper>
+
       <List sx={{ width: "100%", bgcolor: "background.paper" }}>
         {allAreaKeys.map((areaName, index) => {
           const areaStations = groupedStations[areaName];
@@ -987,6 +1050,16 @@ export const OglJourney: FC = () => {
                                 sx={{ fontWeight: "bold", mr: 1 }}
                               >
                                 {s.type.replace("_", " ").toUpperCase()}
+                                {s.type !== "ending_location" && (
+                                  <>
+                                    {" • "}
+                                    {(() => {
+                                      const min = s.minPoints ?? s.points ?? 0;
+                                      const max = s.maxPoints ?? s.points ?? 0;
+                                      return min === max ? `${min} pts` : `${min}-${max} pts`;
+                                    })()}
+                                  </>
+                                )}
                               </Typography>
                               {/* MODIFIED: Simplified count for Ending Locations only */}
                               <Typography
@@ -999,6 +1072,22 @@ export const OglJourney: FC = () => {
                                   ? `(${s.travelingCount} inc)` 
                                   : `(${s.travelingCount} inc / ${s.arrivedCount} wait)`}
                               </Typography>
+                              {/* Bonus Chip */}
+                              {s.bonusType && s.bonusType !== "none" && (
+                                <Chip
+                                  label={s.bonusType === "early-bird" ? "Early-Bird" : "Late-Game"}
+                                  size="small"
+                                  sx={{ 
+                                    ml: 1, 
+                                    height: 20, 
+                                    fontSize: "0.65rem",
+                                    bgcolor: areaColor,
+                                    color: "rgba(0,0,0,0.7)",
+                                    fontWeight: "bold",
+                                    border: "1px solid rgba(0,0,0,0.1)"
+                                  }}
+                                />
+                              )}
                             </Box>
                           }
                         />

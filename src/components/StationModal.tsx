@@ -221,12 +221,15 @@ export interface StationData {
   description: string;
   location: string;
   points?: number;
+  minPoints?: number; // ADDED
+  maxPoints?: number; // ADDED
   status?: string;
   travelingCount?: number;
   arrivedCount?: number;
   hasSecondStage?: boolean;
   secondDescription?: string;
   area?: string;
+  bonusType?: "none" | "early-bird" | "late-game";
 }
 
 interface StationModalProps {
@@ -246,7 +249,8 @@ export const StationModal: FC<StationModalProps> = ({
 }) => {
   const [name, setName] = useState("");
   const [type, setType] = useState<"manned" | "unmanned" | "ending_location" | "">("");
-  const [points, setPoints] = useState(50);
+  const [minPoints, setMinPoints] = useState(50); // ADDED
+  const [maxPoints, setMaxPoints] = useState(50); // ADDED
   const [location, setLocation] = useState("");
   const [description, setDescription] = useState("");
   
@@ -256,6 +260,7 @@ export const StationModal: FC<StationModalProps> = ({
 
   const [hasSecondStage, setHasSecondStage] = useState(false);
   const [secondDescription, setSecondDescription] = useState("");
+  const [bonusType, setBonusType] = useState<"none" | "early-bird" | "late-game">("none");
 
   const [status, setStatus] = useState<
     "OPEN" | "LUNCH_SOON" | "CLOSED_LUNCH" | "CLOSED_PERMANENTLY"
@@ -272,7 +277,8 @@ export const StationModal: FC<StationModalProps> = ({
       setLocation(initialData.location || "");
       setDescription(initialData.description || "");
       setStatus(initialData.status as any);
-      setPoints(initialData.points || 0);
+      setMinPoints(initialData.minPoints ?? initialData.points ?? 50);
+      setMaxPoints(initialData.maxPoints ?? initialData.points ?? 50);
       
       // Handle Area Population
       const currentArea = initialData.area || "Others";
@@ -281,6 +287,7 @@ export const StationModal: FC<StationModalProps> = ({
 
       setHasSecondStage(initialData.hasSecondStage || false);
       setSecondDescription(initialData.secondDescription || "");
+      setBonusType(initialData.bonusType || "none");
     } else if (open && !initialData) {
       // Reset if creating new
       setName("");
@@ -288,12 +295,14 @@ export const StationModal: FC<StationModalProps> = ({
       setLocation("");
       setDescription("");
       setStatus("OPEN");
-      setPoints(0);
+      setMinPoints(50);
+      setMaxPoints(50);
       
       setAreaSelection(""); // Force user to choose
       setCustomAreaName("");
       
       setHasSecondStage(false);
+      setBonusType("none");
       setSecondDescription("");
     }
     setError(null);
@@ -331,10 +340,13 @@ export const StationModal: FC<StationModalProps> = ({
           type,
           location,
           description,
-          points,
+          points: maxPoints,
+          minPoints,
+          maxPoints,
           area: finalArea,
           hasSecondStage,
           secondDescription,
+          bonusType,
         });
       } else {
         // CREATE new
@@ -344,10 +356,13 @@ export const StationModal: FC<StationModalProps> = ({
           type, 
           location, 
           description, 
-          points,
+          points: maxPoints,
+          minPoints,
+          maxPoints,
           area: finalArea,
           hasSecondStage,
           secondDescription,
+          bonusType,
         });
       }
 
@@ -399,17 +414,30 @@ export const StationModal: FC<StationModalProps> = ({
             <MenuItem value="ending_location">Ending Location</MenuItem>
           </Select>
         </FormControl>
-        <TextField
-          label="Points"
-          type="number"
-          fullWidth
-          margin="normal"
-          value={points}
-          onChange={(e) => setPoints(parseInt(e.target.value) || 0)}
-          required
-          inputProps={{ min: 0 }}
-          helperText="Points awarded for completing this station. For manned stations, this is the maximum points."
-        />
+        
+        <Box sx={{ display: "flex", gap: 2 }}>
+          <TextField
+            label="Min Points"
+            type="number"
+            fullWidth
+            margin="normal"
+            value={minPoints}
+            onChange={(e) => setMinPoints(parseInt(e.target.value) || 0)}
+            required
+            inputProps={{ min: 0 }}
+          />
+          <TextField
+            label="Max Points"
+            type="number"
+            fullWidth
+            margin="normal"
+            value={maxPoints}
+            onChange={(e) => setMaxPoints(parseInt(e.target.value) || 0)}
+            required
+            inputProps={{ min: 0 }}
+          />
+        </Box>
+
         <TextField
           label="Location (Optional)"
           variant="outlined"
@@ -495,6 +523,21 @@ export const StationModal: FC<StationModalProps> = ({
             <MarkdownPreview text={secondDescription} />
           </>
         )}
+
+        {/* Bonus Configuration */}
+        <FormControl fullWidth>
+          <InputLabel id="bonus-type-label">Bonus</InputLabel>
+          <Select
+            labelId="bonus-type-label"
+            value={bonusType}
+            label="Bonus"
+            onChange={(e) => setBonusType(e.target.value as any)}
+          >
+            <MenuItem value="none">None</MenuItem>
+            <MenuItem value="early-bird">Early-Bird Bonus</MenuItem>
+            <MenuItem value="late-game">Late-Game Bonus</MenuItem>
+          </Select>
+        </FormControl>
 
         {/* Status selector shown when editing (or always if you prefer) */}
         <FormControl fullWidth>

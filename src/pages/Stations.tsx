@@ -25,7 +25,10 @@ interface StationData {
   location?: string;
   description?: string;
   points: number;
+  minPoints?: number; // ADDED
+  maxPoints?: number; // ADDED
   area?: string; // ADDED
+  bonusType?: "none" | "early-bird" | "late-game";
 }
 
 // REMOVED: AREA_ORDER, AREA_CONFIG, AREA_COLORS
@@ -149,6 +152,31 @@ export const StationsPage: FC = () => {
         </Typography>
       </Box>
 
+      {/* BONUS LEGEND */}
+      <Box sx={{ mb: 6, p: 3, bgcolor: "#fff3e0", borderRadius: 2, border: "1px dashed #ffb74d", maxWidth: 800, mx: "auto" }}>
+        <Typography variant="h6" fontWeight="bold" color="#e65100" gutterBottom textAlign="center">
+          Active Bonuses
+        </Typography>
+        <Grid container spacing={4} justifyContent="center">
+          <Grid size={{ xs: 12, sm: 6 }} textAlign="center">
+            <Typography variant="subtitle1" fontWeight="bold" color="#e65100">
+              Early-Bird (Before 3:30 PM)
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Manned: <strong>+150 pts</strong> | Unmanned: <strong>+100 pts</strong>
+            </Typography>
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6 }} textAlign="center">
+            <Typography variant="subtitle1" fontWeight="bold" color="#e65100">
+              Late-Game (After 3:30 PM)
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Manned: <strong>+200 pts</strong> | Unmanned: <strong>+100 pts</strong>
+            </Typography>
+          </Grid>
+        </Grid>
+      </Box>
+
       {sortedAreaKeys.map((area, index) => {
         const areaStations = stationsByArea[area];
         if (!areaStations || areaStations.length === 0) return null;
@@ -182,6 +210,18 @@ export const StationsPage: FC = () => {
                 // Ending = Success/Green (Goal)
                 const isManned = station.type === "manned";
                 const isEnding = station.type === "ending_location";
+
+                // Determine Points Display
+                let pointsDisplay = "0 pts";
+                if (!isEnding) {
+                    const min = station.minPoints ?? station.points ?? 0;
+                    const max = station.maxPoints ?? station.points ?? 0;
+                    if (min === max) {
+                        pointsDisplay = `${min} pts`;
+                    } else {
+                        pointsDisplay = `${min}-${max} pts`;
+                    }
+                }
 
                 const headerColor = isManned
                   ? theme.palette.warning.main
@@ -241,13 +281,7 @@ export const StationsPage: FC = () => {
                         <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
                           {/* Points Tag */}
                           <Chip
-                            label={
-                              isEnding
-                                ? "0 pts"
-                                : isManned
-                                ? `Up to ${station.points || 0} pts`
-                                : `${station.points || 0} pts`
-                            }
+                            label={pointsDisplay}
                             size="small"
                             icon={<StarIcon style={{ color: headerColor }} />}
                             sx={{
@@ -286,6 +320,23 @@ export const StationsPage: FC = () => {
                               border: "1px solid rgba(255,255,255,0.4)",
                             }}
                           />
+                          {/* Bonus Tag */}
+                          {station.bonusType && station.bonusType !== "none" && (
+                            <Chip
+                              label={
+                                station.bonusType === "early-bird"
+                                  ? "Early-Bird"
+                                  : "Late-Game"
+                              }
+                              size="small"
+                              sx={{
+                                bgcolor: "white",
+                                color: headerColor,
+                                fontWeight: "bold",
+                                border: "1px solid rgba(255,255,255,0.4)",
+                              }}
+                            />
+                          )}
                         </Box>
                       </Box>
 

@@ -34,6 +34,10 @@ interface StationData {
   description: string;
   location: string;
   area?: string; // ADDED
+  bonusType?: "none" | "early-bird" | "late-game";
+  minPoints?: number; // ADDED
+  maxPoints?: number; // ADDED
+  points?: number;
 }
 interface SideQuestData {
   id?: string;
@@ -281,7 +285,10 @@ export const createStation = onCall(
       await ref.set({
         ...request.data,
         points: request.data.points || 0,
+        minPoints: request.data.minPoints || request.data.points || 0, // ADDED
+        maxPoints: request.data.maxPoints || request.data.points || 0, // ADDED
         area: request.data.area || "Others", // ADDED
+        bonusType: request.data.bonusType || "none",
         status: "OPEN",
         travelingCount: 0,
         arrivedCount: 0,
@@ -415,7 +422,7 @@ export const updateStation = onCall(
       throw new HttpsError("permission-denied", "Admin only.");
 
     try {
-      const { id, name, type, description, location, area } = request.data; // ADDED area
+      const { id, name, type, description, location, area, bonusType, minPoints, maxPoints } = request.data; // ADDED area
       await admin
         .firestore()
         .collection("stations")
@@ -426,7 +433,10 @@ export const updateStation = onCall(
           description,
           location,
           area: area || "Others", // ADDED
+          bonusType: bonusType || "none",
           points: request.data.points || 0,
+          minPoints: minPoints || request.data.points || 0, // ADDED
+          maxPoints: maxPoints || request.data.points || 0, // ADDED
         });
       return { success: true };
     } catch (error: any) {
@@ -578,15 +588,19 @@ export const submitScore = onCall(
       let isPending = false;
       let isStageOneCompletion = false; // ADDED
 
+      // Lifted variables for scope access
+      let stationData: any = null;
+      let isManned = false;
+
       if (sId) {
         const stationDoc = await admin
           .firestore()
           .collection("stations")
           .doc(sId)
           .get();
-        const stationData = stationDoc.data();
+        stationData = stationDoc.data();
         const stationName = stationData?.name;
-        const isManned = stationData?.type === "manned";
+        isManned = stationData?.type === "manned";
         const hasSecondStage = stationData?.hasSecondStage;
         
         // 1. Determine Area
@@ -640,6 +654,28 @@ export const submitScore = onCall(
                     awardedByRole: "SYSTEM",
                     note: `Points released upon completion of ${stationName}`,
                   });
+
+                  // NEW: Check for pending bonus
+                  const pendingBonus = groupData?.pendingBonuses?.[pData.id];
+                  if (pendingBonus) {
+                      totalPointsToAdd += pendingBonus.points;
+                      
+                      const bonusReleaseLogRef = admin.firestore().collection("scoreLog").doc();
+                      batch.set(bonusReleaseLogRef, {
+                          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                          groupId,
+                          stationId: pData.id,
+                          sourceId: pData.id,
+                          points: pendingBonus.points,
+                          type: "STATION",
+                          awardedBy: "SYSTEM",
+                          awardedByRole: "SYSTEM",
+                          note: `Points awarded as part of the ${pendingBonus.name} Bonus (Released)`,
+                      });
+                      
+                      // Remove from pendingBonuses
+                      updateData[`pendingBonuses.${pData.id}`] = admin.firestore.FieldValue.delete();
+                  }
 
                   // Remove from pending
                   updateData.pendingStations = admin.firestore.FieldValue.arrayRemove(pData.id);
@@ -706,6 +742,60 @@ export const submitScore = onCall(
       if (sId) { // Always process if sId exists
         // MODIFIED: Only mark as fully completed if NOT just stage 1
         if (!isStageOneCompletion) {
+            // --- BONUS LOGIC ---
+            const bonusType = stationData?.bonusType || "none";
+            if (bonusType !== "none") {
+                const now = new Date();
+                const sgTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Singapore" }));
+                const hours = sgTime.getHours();
+                const minutes = sgTime.getMinutes();
+                const isBefore330 = hours < 15 || (hours === 15 && minutes < 30);
+                
+                let bonusPoints = 0;
+                let bonusName = "";
+                
+                if (bonusType === "early-bird") {
+                    if (isBefore330) {
+                        bonusPoints = stationData?.type === "manned" ? 150 : 100;
+                        bonusName = "Early-Bird";
+                    }
+                } else if (bonusType === "late-game") {
+                    if (!isBefore330) {
+                        bonusPoints = stationData?.type === "manned" ? 200 : 100;
+                        bonusName = "Late-Game";
+                    }
+                }
+                
+                if (bonusPoints > 0) {
+                    if (isPending) {
+                        // Store pending bonus
+                        if (!groupData?.pendingBonuses) {
+                             updateData.pendingBonuses = {
+                                 [sId]: { points: bonusPoints, name: bonusName }
+                             };
+                        } else {
+                             updateData[`pendingBonuses.${sId}`] = { points: bonusPoints, name: bonusName };
+                        }
+                    } else {
+                        totalPointsToAdd += bonusPoints;
+                        
+                        const bonusLogRef = admin.firestore().collection("scoreLog").doc();
+                        batch.set(bonusLogRef, {
+                          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                          groupId,
+                          stationId: sId,
+                          sourceId: sId,
+                          points: bonusPoints,
+                          type: "STATION",
+                          awardedBy: "SYSTEM",
+                          awardedByRole: "SYSTEM",
+                          note: `Points awarded as part of the ${bonusName} Bonus`,
+                        });
+                    }
+                }
+            }
+            // -------------------
+
             totalPointsToAdd += sPoints;
             updateData.completedStations = admin.firestore.FieldValue.arrayUnion(sId);
             updateData.status = "IDLE";
@@ -2316,8 +2406,11 @@ export const getPublicGameInfo = onRequest(
           name: data.name,
           type: data.type,
           points: data.points || 50,
+          minPoints: data.minPoints || data.points || 50, // ADDED
+          maxPoints: data.maxPoints || data.points || 50, // ADDED
           location: data.location,
           area: data.area,
+          bonusType: data.bonusType || "none",
           
           // LOGIC: If data.description is "" (or null/undefined), use the default.
           // Otherwise, use the text from the DB.

@@ -520,7 +520,13 @@ export const AdminStationManagement: React.FC = () => {
                       size="small"
                     />
                   </TableCell>
-                  <TableCell>{s.points || 0}</TableCell>
+                  <TableCell>
+                    {(() => {
+                      const min = s.minPoints ?? s.points ?? 0;
+                      const max = s.maxPoints ?? s.points ?? 0;
+                      return min === max ? min : `${min}-${max}`;
+                    })()}
+                  </TableCell>
                   <TableCell>{s.location || "-"}</TableCell>
                   <TableCell>
                     <Chip
