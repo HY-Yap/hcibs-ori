@@ -46,6 +46,8 @@ interface StationData {
   travelingCount: number;
   arrivedCount: number;
   area?: string; // ADDED
+  stationLimit?: number;
+  areaLimit?: number;
 }
 
 interface GroupData {
@@ -308,6 +310,7 @@ export const AdminDashboard: FC = () => {
                 <TableCell>Status</TableCell>
                 <TableCell align="center"> Incoming 🚍</TableCell>
                 <TableCell align="center">Queue 🧘</TableCell>
+                <TableCell align="center">Station Capacity</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -320,14 +323,26 @@ export const AdminDashboard: FC = () => {
 
                 return (
                   <React.Fragment key={area}>
-                    {/* Area Header Row */}
+                    {/* Area Header Row with inline occupancy (not a separate column) */}
                     <TableRow sx={{ bgcolor: areaColor }}>
-                      <TableCell
-                        colSpan={4}
-                        sx={{ fontWeight: "bold", color: "text.primary" }}
-                      >
+                      <TableCell sx={{ fontWeight: "bold", color: "text.primary" }}>
                         {area}
+                        {area !== "Others" && (
+                          <> {` (`}
+                            {
+                              areaStations.reduce(
+                                (sum, s) => sum + s.travelingCount + s.arrivedCount,
+                                0
+                              )
+                            }
+                            {`/8)`}
+                          </>
+                        )}
                       </TableCell>
+                      <TableCell />
+                      <TableCell />
+                      <TableCell />
+                      <TableCell />
                     </TableRow>
                     {areaStations.map((s) => (
                       <TableRow key={s.id}>
@@ -368,6 +383,7 @@ export const AdminDashboard: FC = () => {
                         >
                           {s.arrivedCount}
                         </TableCell>
+                        <TableCell align="center">{`${s.arrivedCount}/3`}</TableCell>
                       </TableRow>
                     ))}
                   </React.Fragment>

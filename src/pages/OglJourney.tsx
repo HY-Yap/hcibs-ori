@@ -1069,8 +1069,8 @@ export const OglJourney: FC = () => {
                                 sx={{ whiteSpace: "nowrap" }}
                               >
                                 {s.type === "ending_location" 
-                                  ? `(${s.travelingCount} inc)` 
-                                  : `(${s.travelingCount} inc / ${s.arrivedCount} wait)`}
+                                  ? `(${s.travelingCount} arr)` 
+                                  : `(${s.travelingCount} arr / ${s.arrivedCount} trav)`}
                               </Typography>
                               {/* Bonus Chip */}
                               {s.bonusType && s.bonusType !== "none" && (

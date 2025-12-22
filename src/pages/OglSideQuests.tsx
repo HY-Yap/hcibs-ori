@@ -96,8 +96,9 @@ export const OglSideQuests: FC = () => {
       ? quest.secondSubmissionType
       : quest.submissionType;
 
-    if (currentSubmissionType !== "none" && !submissionUrl && !textAnswer) {
-      alert("Please provide proof (file or text).");
+    // For photo/video quests, a file upload is mandatory
+    if (currentSubmissionType !== "none" && !submissionUrl) {
+      alert("Please upload a file for this quest.");
       return;
     }
 
@@ -379,7 +380,7 @@ export const OglSideQuests: FC = () => {
                         <Button
                           variant="contained"
                           onClick={() => handleSubmit(quest)}
-                          disabled={!!submittingId}
+                          disabled={!!submittingId || (displaySubmissionType !== "none" && !submissionUrl)}
                         >
                           {submittingId === quest.id ? (
                             <CircularProgress size={24} />

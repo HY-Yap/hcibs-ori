@@ -13,6 +13,7 @@ import {
 } from "@mui/material";
 import { httpsCallable } from "firebase/functions";
 import { functions } from "../firebase";
+import { useAuth } from "../context/AuthContext";
 
 // const style = {
 //   position: "absolute" as "absolute",
@@ -53,6 +54,7 @@ export const EditScoreModal: FC<Props> = ({
   const [reason, setReason] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { profile } = useAuth();
 
   const handleClose = () => {
     onClose();
@@ -72,16 +74,31 @@ export const EditScoreModal: FC<Props> = ({
       return;
     }
 
+    // Client-side guard to avoid calling the function when not ADMIN
+    if (profile?.role !== "ADMIN") {
+      setError("Only Admins can update scores. Please sign in as an Admin.");
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
       const updateScoreFn = httpsCallable(functions, "adminUpdateScore");
       await updateScoreFn({ groupId: group.id, points: pointsNum, reason });
+      // Broadcast announcement to the affected group
+      // Announcement + push are handled server-side in adminUpdateScore
       onSuccess();
       handleClose();
     } catch (err: any) {
       console.error(err);
-      setError(err.message || "Error updating score.");
+      const code = err?.code as string | undefined;
+      if (code === "permission-denied") {
+        setError("Permission denied. Ensure your account has the ADMIN role.");
+      } else if (code === "unauthenticated") {
+        setError("Please sign in to perform this action.");
+      } else {
+        setError(err?.message || "Error updating score.");
+      }
     } finally {
       setLoading(false);
     }

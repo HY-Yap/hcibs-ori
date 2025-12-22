@@ -1614,6 +1614,26 @@ export const adminUpdateScore = onCall(
       });
 
       await batch.commit();
+      // 3. Create announcement for the affected group and send push
+      const verb = points > 0 ? "added" : "deducted";
+      const prep = points > 0 ? "to" : "from";
+      const magnitude = Math.abs(points);
+      const groupDoc = await admin.firestore().collection("groups").doc(groupId).get();
+      const groupName = groupDoc.data()?.name || "Your group";
+      const message = `An admin has ${verb} ${magnitude} points ${prep} ${groupName} for ${reason}`;
+
+      await admin.firestore().collection("announcements").add({
+        message,
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        targets: ["OGL"],
+        groupId,
+        createdBy: request.auth.uid,
+        type: "ADMIN_SCORE_UPDATE",
+      });
+
+      // Push notification to OGLs of this group
+      await notifyGroup(groupId, message);
+
       return { success: true };
     } catch (error: any) {
       throw new HttpsError("internal", error.message);

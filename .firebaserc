@@ -2,7 +2,5 @@
   "projects": {
     "default": "hcibso",
     "staging": "hcibso"
-  },
-  "targets": {},
-  "etags": {}
+  }
 }

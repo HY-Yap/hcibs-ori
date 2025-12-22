@@ -121,7 +121,7 @@ export const OglDashboard: FC = () => {
     };
   }, [profile]);
 
-  // C. Listen to Announcements (MOVED OUTSIDE to fix crash)
+  // C. Listen to Announcements (filter to my group when targeted)
   useEffect(() => {
     const qAnnounce = query(
       collection(db, "announcements"),
@@ -131,14 +131,15 @@ export const OglDashboard: FC = () => {
     const unsubAnnounce = onSnapshot(
       qAnnounce,
       (snap) => {
+        const myGroupId = profile?.groupId;
         const list = snap.docs
           .map((d) => ({ id: d.id, ...d.data() } as AnnouncementData))
-          .filter(
-            (ann) =>
-              !ann.targets ||
-              ann.targets.includes("OGL") ||
-              ann.targets.includes("GUEST") // Keep GUEST here for Notification
-          );
+          .filter((ann) => {
+            const roleTargeted =
+              !ann.targets || ann.targets.includes("OGL") || ann.targets.includes("GUEST");
+            const groupOK = !("groupId" in ann) || (ann as any).groupId === myGroupId;
+            return roleTargeted && groupOK;
+          });
         setAnnouncements(list);
       },
       (err) => {
@@ -146,7 +147,7 @@ export const OglDashboard: FC = () => {
       }
     );
     return () => unsubAnnounce();
-  }, []);
+  }, [profile?.groupId]);
 
   // Detect new announcements for notification
   useEffect(() => {
@@ -173,7 +174,7 @@ export const OglDashboard: FC = () => {
   }, [announcements]);
 
   // Pagination Logic
-  // Filter out GUEST-only announcements from the LIST view
+  // Filter out GUEST-only announcements from the LIST view (group filter already applied above)
   const listAnnouncements = announcements.filter(
     (ann) => !ann.targets || ann.targets.includes("OGL")
   );

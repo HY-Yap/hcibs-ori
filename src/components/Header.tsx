@@ -72,43 +72,49 @@ const Header: React.FC = () => {
   const [loadTime] = useState(() => new Date());
 
   useEffect(() => {
-    // Listen to latest announcement
+    // Listen to recent announcements and show the first relevant one
     const q = query(
       collection(db, "announcements"),
       orderBy("timestamp", "desc"),
-      limit(1)
+      limit(20)
     );
     const unsub = onSnapshot(q, (snap) => {
       if (snap.empty) return;
-      const doc = snap.docs[0];
-      const data = doc.data();
-
-      // Prevent duplicate if same ID
-      if (doc.id === lastAnnounceId) return;
-
-      // Prevent showing old announcements on reload
-      const annTime = data.timestamp?.toDate();
-      if (!annTime || annTime <= loadTime) return;
-
-      // Check targeting
-      const targets = data.targets as string[] | undefined;
       const myRole = profile?.role;
+      const myGroupId = (profile as any)?.groupId;
 
-      let isRelevant = false;
-      if (!targets || targets.length === 0) isRelevant = true; // Legacy/All
-      else if (targets.includes("GUEST")) isRelevant = true;
-      else if (myRole && targets.includes(myRole)) isRelevant = true;
-      else if (
-        myRole === "SM" &&
-        (profile as any)?.selectedStationId &&
-        targets.includes(`SM:${(profile as any).selectedStationId}`)
-      )
-        isRelevant = true;
+      const firstRelevant = snap.docs.find((d) => {
+        const data = d.data();
+        const annTime = data.timestamp?.toDate();
+        if (!annTime || annTime <= loadTime) return false; // Skip old
+        const targets = data.targets as string[] | undefined;
 
-      if (isRelevant) {
+        let isRelevant = false;
+        if (!targets || targets.length === 0) isRelevant = true; // Legacy/All
+        else if (targets.includes("GUEST")) isRelevant = true;
+        else if (myRole && targets.includes(myRole)) {
+          // If OGL, respect group scoping when provided
+          if (myRole === "OGL") {
+            const groupId = (data as any)?.groupId;
+            isRelevant = !groupId || groupId === myGroupId;
+          } else {
+            isRelevant = true;
+          }
+        } else if (
+          myRole === "SM" &&
+          (profile as any)?.selectedStationId &&
+          targets?.includes(`SM:${(profile as any).selectedStationId}`)
+        ) {
+          isRelevant = true;
+        }
+        return isRelevant && d.id !== lastAnnounceId;
+      });
+
+      if (firstRelevant) {
+        const data = firstRelevant.data();
         setNotifyMessage(data.message);
         setNotifyOpen(true);
-        setLastAnnounceId(doc.id);
+        setLastAnnounceId(firstRelevant.id);
       }
     });
     return () => unsub();
