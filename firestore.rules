@@ -6,6 +6,16 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function userRole() {
+      return isSignedIn()
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role
+        : null;
+    }
+
+    function isAdmin() {
+      return userRole() == 'ADMIN';
+    }
+
     // 1. USERS COLLECTION (UPDATED)
     match /users/{userId} {
       allow read: if isSignedIn();
@@ -37,6 +47,15 @@ service cloud.firestore {
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['OGL', 'SM', 'ADMIN'];
       allow update, delete: if false;
     }
+
+    // NEW: REQUESTS COLLECTION (Help Requests)
+    match /requests/{requestId} {
+      // Admins can read/update/delete any request; owners can read their own
+      allow read: if isAdmin() || (isSignedIn() && resource.data.sentByUid == request.auth.uid);
+      allow update, delete: if isAdmin();
+      // OGL/SM (and Admin) can create
+      allow create: if isSignedIn() && userRole() in ['OGL', 'SM', 'ADMIN'];
+    }
     match /scoreLog/{logId} {
       allow read: if isSignedIn();
       allow write: if false;
@@ -54,7 +73,9 @@ service cloud.firestore {
     match /chats/{chatId} {
       allow read: if isSignedIn();
       allow update: if isSignedIn();
-      allow create, delete: if false;
+      // Allow OGL/SM/Admin to create chats; only Admin can delete
+      allow create: if isSignedIn() && userRole() in ['OGL', 'SM', 'ADMIN'];
+      allow delete: if isAdmin();
       match /messages/{msgId} {
         allow read: if isSignedIn();
         allow write: if false;

@@ -22,6 +22,7 @@ import { AdminScoreLog } from "./pages/AdminScoreLog";
 import { ProfilePage } from "./pages/Profile";
 import { AdminSubmissionGallery } from "./pages/AdminSubmissionGallery";
 import { AdminAnnouncementManagement } from "./pages/AdminAnnouncementManagement";
+import { AdminRequestManagement } from "./pages/AdminRequestManagement";
 
 // Import all our components
 import { Layout } from "./components/Layout";
@@ -65,6 +66,10 @@ function App() {
               <Route
                 path="admin/announcements"
                 element={<AdminAnnouncementManagement />}
+              />
+              <Route
+                path="admin/requests"
+                element={<AdminRequestManagement />}
               />
               <Route path="admin/controls" element={<AdminGameControls />} />
               <Route path="admin/scorelog" element={<AdminScoreLog />} />

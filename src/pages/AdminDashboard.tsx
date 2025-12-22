@@ -28,7 +28,6 @@ import {
   query,
   orderBy,
   // --- NEW IMPORTS ---
-  limit,
 } from "firebase/firestore";
 import { db } from "../firebase";
 import LocationOnIcon from "@mui/icons-material/LocationOn";
@@ -142,8 +141,7 @@ export const AdminDashboard: FC = () => {
   useEffect(() => {
     const qAnnounce = query(
       collection(db, "announcements"),
-      orderBy("timestamp", "desc"),
-      limit(50)
+      orderBy("timestamp", "desc")
     );
     const unsub = onSnapshot(qAnnounce, (snap) => {
       const list = snap.docs
@@ -522,6 +520,8 @@ export const AdminDashboard: FC = () => {
                     onChange={(_, p) => setPage(p)}
                     color="primary"
                     size="small"
+                    boundaryCount={2}
+                    siblingCount={1}
                   />
                 </Box>
               )}

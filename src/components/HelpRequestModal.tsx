@@ -39,16 +39,19 @@ export const HelpRequestModal: React.FC = () => {
 
     setLoading(true);
     try {
-      await addDoc(collection(db, "announcements"), {
-        message: `[HELP REQUEST] ${title}\n\n${details}`,
+      await addDoc(collection(db, "requests"), {
+        title: title.trim(),
+        details: details.trim(),
         timestamp: serverTimestamp(),
-        targets: ["ADMIN"],
-        createdBy: currentUser?.uid || "UNKNOWN",
-        authorName: profile.displayName,
-        type: "HELP_REQUEST",
+        status: "OPEN",
+        sentByUid: currentUser?.uid || "UNKNOWN",
+        sentByName: profile.displayName,
+        groupId: profile.groupId || null,
+        senderRole: profile.role,
+        selectedStationId: (profile as any).selectedStationId || null,
       });
       handleClose();
-      alert("Help request sent to Admins!");
+      alert("Help request submitted.");
     } catch (error) {
       console.error("Error sending help request:", error);
       alert("Failed to send help request.");

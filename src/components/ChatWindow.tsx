@@ -29,7 +29,7 @@ interface Message {
   id: string;
   text: string;
   senderId: string;
-  senderRole: "SM" | "OGL";
+  senderRole: "SM" | "OGL" | "ADMIN";
   timestamp: any;
 }
 
@@ -88,6 +88,8 @@ export const ChatWindow: FC<Props> = ({ chatId, title, onClose }) => {
   // 2. Update MY "Last Seen" (Runs whenever messages change)
   useEffect(() => {
     if (!profile?.role) return;
+    // Skip for ADMIN role
+    if (profile.role === "ADMIN") return;
 
     const myUnreadField =
       profile.role === "OGL" ? "unreadCountOGL" : "unreadCountSM";

@@ -4,6 +4,7 @@ import {
   HttpsError,
   CallableOptions,
 } from "firebase-functions/v2/https";
+import { onDocumentCreated } from "firebase-functions/v2/firestore";
 import { setGlobalOptions } from "firebase-functions/v2";
 import * as admin from "firebase-admin";
 import archiver from "archiver"; // Default import for zipping!
@@ -158,6 +159,68 @@ const notifyGroup = async (groupId: string, message: string) => {
     }
   } catch (err) {
     console.error("   🔥 Failed to notify Group:", err);
+  }
+};
+
+// --- HELPER: SEND PUSH TO SPECIFIC USER ---
+const notifyUser = async (uid: string, message: string, url: string) => {
+  console.log(`🔔 notifyUser called for UID: ${uid}`);
+  try {
+    const userDoc = await admin.firestore().collection("users").doc(uid).get();
+    const data = userDoc.data();
+    if (data?.fcmToken) {
+      console.log(`   🚀 Sending push to ${data.displayName}...`);
+      await admin.messaging().send({
+        token: data.fcmToken,
+        data: {
+          title: "New Message",
+          body: message,
+          url: url,
+        },
+      });
+      console.log("   ✅ Notification sent.");
+    } else {
+      console.log("   ⚠️ No token found for user.");
+    }
+  } catch (err) {
+    console.error("   🔥 Failed to notify user:", err);
+  }
+};
+
+// --- HELPER: SEND PUSH TO ALL ADMINS ---
+const notifyAdmins = async (message: string, url: string) => {
+  console.log("🔔 notifyAdmins called");
+  try {
+    const adminQuery = await admin
+      .firestore()
+      .collection("users")
+      .where("role", "==", "ADMIN")
+      .get();
+
+    const tokens: string[] = [];
+    adminQuery.forEach((doc) => {
+      const data = doc.data();
+      if (data.fcmToken) {
+        tokens.push(data.fcmToken);
+      }
+    });
+
+    if (tokens.length > 0) {
+      console.log(`   🚀 Sending push to ${tokens.length} admins...`);
+      await admin.messaging().sendEachForMulticast({
+        tokens: tokens,
+        data: {
+          title: "New Help Request",
+          body: message,
+          url: url,
+        },
+      });
+      console.log("   ✅ Notifications sent.");
+    } else {
+      console.log("   ⚠️ No admin tokens found.");
+    }
+  } catch (err) {
+    console.error("   🔥 Failed to notify admins:", err);
   }
 };
 
@@ -2341,7 +2404,7 @@ export const sendChatMessage = onCall(
         .get();
       const senderRole = userDoc.data()?.role;
 
-      if (senderRole !== "SM" && senderRole !== "OGL") {
+      if (senderRole !== "SM" && senderRole !== "OGL" && senderRole !== "ADMIN") {
         throw new HttpsError("permission-denied", "Unauthorized.");
       }
 
@@ -2362,22 +2425,46 @@ export const sendChatMessage = onCall(
         lastMessageTime: admin.firestore.FieldValue.serverTimestamp(),
       };
 
-      if (senderRole === "OGL") {
-        // If OGL sent it, increment SM unread
-        updateData.unreadCountSM = admin.firestore.FieldValue.increment(1);
-        // Notify SM
-        await notifyStationMaster(
-          chatData?.stationId,
-          `New message from ${chatData?.groupName}: ${message}`
-        );
+      if (chatData?.type === "REQUEST") {
+        // --- HELP REQUEST CHAT ---
+        if (senderRole === "ADMIN") {
+          const requesterUid = chatData.requesterUid;
+          const requesterDoc = await admin.firestore().collection("users").doc(requesterUid).get();
+          const requesterRole = requesterDoc.data()?.role;
+          
+          if (requesterRole === "OGL") {
+            updateData.unreadCountOGL = admin.firestore.FieldValue.increment(1);
+          } else if (requesterRole === "SM") {
+            updateData.unreadCountSM = admin.firestore.FieldValue.increment(1);
+          }
+          
+          await notifyUser(requesterUid, `Admin: ${message}`, requesterRole === "OGL" ? "/ogl" : "/sm");
+        } else {
+          // Requester sent message to Admin
+          await notifyAdmins(
+            `Message from ${chatData?.requesterName}: ${message}`,
+            "/admin/requests"
+          );
+        }
       } else {
-        // If SM sent it, increment OGL unread
-        updateData.unreadCountOGL = admin.firestore.FieldValue.increment(1);
-        // Notify Group
-        await notifyGroup(
-          chatData?.groupId,
-          `New message from ${chatData?.stationName}: ${message}`
-        );
+        // --- STANDARD CHAT (OGL <-> SM) ---
+        if (senderRole === "OGL") {
+          updateData.unreadCountSM = admin.firestore.FieldValue.increment(1);
+          await notifyStationMaster(
+            chatData?.stationId,
+            `New message from ${chatData?.groupName}: ${message}`
+          );
+        } else if (senderRole === "SM") {
+          updateData.unreadCountOGL = admin.firestore.FieldValue.increment(1);
+          await notifyGroup(
+            chatData?.groupId,
+            `New message from ${chatData?.stationName}: ${message}`
+          );
+        } else if (senderRole === "ADMIN") {
+          // Admin intervening
+          updateData.unreadCountOGL = admin.firestore.FieldValue.increment(1);
+          updateData.unreadCountSM = admin.firestore.FieldValue.increment(1);
+        }
       }
 
       batch.update(chatRef, updateData);
@@ -2389,6 +2476,22 @@ export const sendChatMessage = onCall(
     }
   }
 );
+
+// ===================================================================
+// 38.5. NOTIFY ADMINS ON NEW REQUEST
+// ===================================================================
+export const onRequestCreated = onDocumentCreated("requests/{requestId}", async (event) => {
+  const data = event.data?.data();
+  if (!data) return;
+
+  const title = data.title || "No Title";
+  const sender = data.sentByName || "Someone";
+  
+  await notifyAdmins(
+    `${sender} needs help: ${title}`,
+    "/admin/requests"
+  );
+});
 
 // ===================================================================
 // 39. PUBLIC GAME INFO (For Guests)

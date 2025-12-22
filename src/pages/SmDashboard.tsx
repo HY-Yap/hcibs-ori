@@ -28,7 +28,6 @@ import {
   query,
   where,
   orderBy,
-  limit,
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { StationSelector } from "../components/StationSelector";
@@ -41,6 +40,7 @@ import ChatIcon from "@mui/icons-material/Chat";
 import CampaignIcon from "@mui/icons-material/Campaign";
 import { SmActionModal, type GroupForModal } from "../components/SmActionModal";
 import { ChatWindow } from "../components/ChatWindow";
+import { RequestsList } from "../components/RequestsList";
 
 interface StationData {
   id: string;
@@ -122,8 +122,7 @@ export const SmDashboard: React.FC = () => {
   useEffect(() => {
     const qAnnounce = query(
       collection(db, "announcements"),
-      orderBy("timestamp", "desc"),
-      limit(50)
+      orderBy("timestamp", "desc")
     );
     const unsub = onSnapshot(qAnnounce, (snap) => {
       const list = snap.docs
@@ -646,6 +645,11 @@ export const SmDashboard: React.FC = () => {
         />
       )}
 
+      {/* === MY REQUESTS === */}
+      <Box sx={{ mt: 4 }}>
+        <RequestsList />
+      </Box>
+
       {/* SM ANNOUNCEMENTS */}
       <Box sx={{ mt: 4 }}>
         <Typography
@@ -704,6 +708,8 @@ export const SmDashboard: React.FC = () => {
                     onChange={(_, p) => setPage(p)}
                     color="primary"
                     size="small"
+                    boundaryCount={2}
+                    siblingCount={1}
                   />
                 </Box>
               )}

@@ -23,13 +23,13 @@ import {
   getCountFromServer,
   query,
   orderBy,
-  limit,
 } from "firebase/firestore";
 import { db } from "../firebase";
 import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
 import CampaignIcon from "@mui/icons-material/Campaign";
 import LeaderboardIcon from "@mui/icons-material/Leaderboard";
 import { ProgressRing } from "../components/ProgressRing";
+import { RequestsList } from "../components/RequestsList";
 
 interface GroupData {
   name: string;
@@ -125,8 +125,7 @@ export const OglDashboard: FC = () => {
   useEffect(() => {
     const qAnnounce = query(
       collection(db, "announcements"),
-      orderBy("timestamp", "desc"),
-      limit(50)
+      orderBy("timestamp", "desc")
     );
     const unsubAnnounce = onSnapshot(
       qAnnounce,
@@ -356,6 +355,11 @@ export const OglDashboard: FC = () => {
         </Paper>
       </Box>
 
+      {/* === MY REQUESTS === */}
+      <Box sx={{ mt: 6 }}>
+        <RequestsList />
+      </Box>
+
       {/* === ANNOUNCEMENT LOG === */}
       <Box sx={{ mt: 4 }}>
         <Typography
@@ -414,6 +418,8 @@ export const OglDashboard: FC = () => {
                     onChange={(_, p) => setPage(p)}
                     color="primary"
                     size="small"
+                    boundaryCount={2}
+                    siblingCount={1}
                   />
                 </Box>
               )}

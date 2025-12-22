@@ -106,93 +106,90 @@ const MarkdownPreview = ({ text }: { text: string }) => {
       >
         Live Preview
       </Typography>
-      {text.split("\n").map((line, i) => {
+      {(() => {
+        const lines = text.split("\n");
+        const nodes: any[] = [];
+        let i = 0;
+        while (i < lines.length) {
+          const line = lines[i];
         // Headers
-        if (line.startsWith("### "))
-          return (
-            <Typography
-              key={i}
-              variant="subtitle1"
-              sx={{ fontWeight: "bold", mt: 1 }}
-            >
+        if (line.startsWith("### ")) {
+          nodes.push(
+            <Typography key={`h3-${i}`} variant="subtitle1" sx={{ fontWeight: "bold", mt: 1 }}>
               {parseInline(line.slice(4))}
             </Typography>
           );
-        if (line.startsWith("## "))
-          return (
-            <Typography
-              key={i}
-              variant="h6"
-              sx={{ fontWeight: "bold", mt: 1.5 }}
-            >
+          i++; continue;
+        }
+        if (line.startsWith("## ")) {
+          nodes.push(
+            <Typography key={`h2-${i}`} variant="h6" sx={{ fontWeight: "bold", mt: 1.5 }}>
               {parseInline(line.slice(3))}
             </Typography>
           );
-        if (line.startsWith("# "))
-          return (
-            <Typography
-              key={i}
-              variant="h5"
-              sx={{ fontWeight: "bold", mt: 2 }}
-            >
+          i++; continue;
+        }
+        if (line.startsWith("# ")) {
+          nodes.push(
+            <Typography key={`h1-${i}`} variant="h5" sx={{ fontWeight: "bold", mt: 2 }}>
               {parseInline(line.slice(2))}
             </Typography>
           );
+          i++; continue;
+        }
 
         // Blockquote
         if (line.startsWith("> ")) {
-          return (
-            <Box
-              key={i}
-              sx={{
-                borderLeft: "4px solid #ccc",
-                pl: 2,
-                py: 0.5,
-                my: 1,
-                bgcolor: "rgba(0,0,0,0.03)",
-                fontStyle: "italic",
-              }}
-            >
-              <Typography variant="body2">
-                {parseInline(line.slice(2))}
-              </Typography>
+          const quotePieces: any[] = [];
+          const start = i;
+          while (i < lines.length && lines[i].startsWith("> ")) {
+            const content = parseInline(lines[i].slice(2));
+            quotePieces.push(<span key={`qline-${i}`}>{content}</span>);
+            if (i + 1 < lines.length && lines[i + 1].startsWith("> ")) {
+              quotePieces.push(<br key={`qbr-${i}`} />);
+            }
+            i++;
+          }
+          nodes.push(
+            <Box key={`quote-${start}`} sx={{ borderLeft: "4px solid #ccc", pl: 2, py: 0.5, my: 1, bgcolor: "rgba(0,0,0,0.03)", fontStyle: "italic" }}>
+              <Typography variant="body2">{quotePieces}</Typography>
             </Box>
           );
+          continue;
         }
 
         // Unordered List
         if (line.startsWith("- ")) {
-          return (
-            <Box key={i} sx={{ display: "flex", ml: 1 }}>
+          nodes.push(
+            <Box key={`ul-${i}`} sx={{ display: "flex", ml: 1 }}>
               <Typography sx={{ mr: 1 }}>•</Typography>
-              <Typography variant="body2">
-                {parseInline(line.slice(2))}
-              </Typography>
+              <Typography variant="body2">{parseInline(line.slice(2))}</Typography>
             </Box>
           );
+          i++; continue;
         }
 
         // Ordered List
         const orderedMatch = line.match(/^(\d+)\.\s(.*)/);
         if (orderedMatch) {
-          return (
-            <Box key={i} sx={{ display: "flex", ml: 1 }}>
-              <Typography sx={{ mr: 1, fontWeight: "bold" }}>
-                {orderedMatch[1]}.
-              </Typography>
-              <Typography variant="body2">
-                {parseInline(orderedMatch[2])}
-              </Typography>
+          nodes.push(
+            <Box key={`ol-${i}`} sx={{ display: "flex", ml: 1 }}>
+              <Typography sx={{ mr: 1, fontWeight: "bold" }}>{orderedMatch[1]}.</Typography>
+              <Typography variant="body2">{parseInline(orderedMatch[2])}</Typography>
             </Box>
           );
+          i++; continue;
         }
 
-        return (
-          <Box key={i} sx={{ minHeight: line ? "auto" : "1em" }}>
+        nodes.push(
+          <Box key={`p-${i}`} sx={{ minHeight: line ? "auto" : "1em" }}>
             {parseInline(line)}
           </Box>
         );
-      })}
+        i++;
+        }
+        return nodes;
+      })()}
     </Box>
   );
 };

@@ -192,6 +192,11 @@ const Header: React.FC = () => {
             path: "/admin/announcements",
             isExternal: false,
           },
+          {
+            name: "Manage Requests",
+            path: "/admin/requests",
+            isExternal: false,
+          },
           { name: "DIVIDER", path: "", isDivider: true },
           { name: "Game Controls", path: "/admin/controls" },
           { name: "Score Log", path: "/admin/scorelog" },
