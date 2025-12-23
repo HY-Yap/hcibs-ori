@@ -424,6 +424,29 @@ export const OglJourney: FC = () => {
 
   const handleStartTravel = async () => {
     if (!selectedStation || !eta) return;
+
+    // Double check capacity before calling function
+    const currentS = stations.find(s => s.id === selectedStation.id);
+    if (currentS && currentS.area !== "Others") {
+      const occupancy = (currentS.travelingCount || 0) + (currentS.arrivedCount || 0);
+      if (occupancy >= 3) {
+        alert("Station is full! Please choose another.");
+        setTravelDialogOpen(false);
+        setSelectedStation(null);
+        return;
+      }
+
+      // Check Area Capacity
+      const areaStations = stations.filter(s => (s.area || "Others") === (currentS.area || "Others"));
+      const areaOccupancy = areaStations.reduce((sum, s) => sum + (s.travelingCount || 0) + (s.arrivedCount || 0), 0);
+      if (areaOccupancy >= 8) {
+        alert(`Area '${currentS.area}' is full! Please choose another.`);
+        setTravelDialogOpen(false);
+        setSelectedStation(null);
+        return;
+      }
+    }
+
     await callFunction("oglStartTravel", {
       stationId: selectedStation.id,
       eta,
@@ -1149,6 +1172,33 @@ export const OglJourney: FC = () => {
       >
         <DialogTitle>Travel to {selectedStation?.name}?</DialogTitle>
         <DialogContent>
+          {(() => {
+            const currentS = stations.find(s => s.id === selectedStation?.id);
+            if (!currentS || currentS.area === "Others") return null;
+
+            const occupancy = (currentS.travelingCount || 0) + (currentS.arrivedCount || 0);
+            const isStationFull = occupancy >= 3;
+
+            const areaStations = stations.filter(s => (s.area || "Others") === (currentS.area || "Others"));
+            const areaOccupancy = areaStations.reduce((sum, s) => sum + (s.travelingCount || 0) + (s.arrivedCount || 0), 0);
+            const isAreaFull = areaOccupancy >= 8;
+            
+            if (isStationFull) {
+              return (
+                <Alert severity="error" sx={{ mb: 2 }}>
+                  This station just became full! Please close this dialog and pick another.
+                </Alert>
+              );
+            }
+            if (isAreaFull) {
+              return (
+                <Alert severity="error" sx={{ mb: 2 }}>
+                  This area just became full! Please close this dialog and pick another.
+                </Alert>
+              );
+            }
+            return null;
+          })()}
           <DialogContentText sx={{ mb: 2 }}>
             Enter your estimated time of arrival (ETA).
           </DialogContentText>
@@ -1167,7 +1217,21 @@ export const OglJourney: FC = () => {
           <Button
             onClick={handleStartTravel}
             variant="contained"
-            disabled={!eta || actionLoading}
+            disabled={
+              !eta || 
+              actionLoading || 
+              (() => {
+                const currentS = stations.find(s => s.id === selectedStation?.id);
+                if (!currentS || currentS.area === "Others") return false;
+
+                const occupancy = (currentS.travelingCount || 0) + (currentS.arrivedCount || 0);
+                if (occupancy >= 3) return true;
+
+                const areaStations = stations.filter(s => (s.area || "Others") === (currentS.area || "Others"));
+                const areaOccupancy = areaStations.reduce((sum, s) => sum + (s.travelingCount || 0) + (s.arrivedCount || 0), 0);
+                return areaOccupancy >= 8;
+              })()
+            }
           >
             Start Traveling
           </Button>

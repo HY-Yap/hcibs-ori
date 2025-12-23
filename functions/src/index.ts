@@ -645,6 +645,13 @@ export const submitScore = onCall(
       const sId = stationId ?? (type === "STATION" ? id : null);
       const sqId = sideQuestId ?? (type === "SIDE_QUEST" ? id : null);
 
+      if (sId && groupData?.completedStations?.includes(sId)) {
+        throw new HttpsError("already-exists", "Station already completed.");
+      }
+      if (sqId && groupData?.completedSideQuests?.includes(sqId)) {
+        throw new HttpsError("already-exists", "Side quest already completed.");
+      }
+
       // --- HANDLE POINTS LOGIC: MANNED vs UNMANNED ---
       let sPoints = 0;
       let sqPoints = 0;
@@ -866,9 +873,18 @@ export const submitScore = onCall(
             updateData.destinationId = admin.firestore.FieldValue.delete();
             updateData.destinationEta = admin.firestore.FieldValue.delete();
 
-            batch.update(admin.firestore().collection("stations").doc(sId), {
-              arrivedCount: admin.firestore.FieldValue.increment(-1),
-            });
+            // Only decrement if the group is actually at this station
+            if (groupData?.destinationId === sId) {
+                if (groupData?.status === "ARRIVED") {
+                    batch.update(admin.firestore().collection("stations").doc(sId), {
+                      arrivedCount: admin.firestore.FieldValue.increment(-1),
+                    });
+                } else if (groupData?.status === "TRAVELING") {
+                    batch.update(admin.firestore().collection("stations").doc(sId), {
+                      travelingCount: admin.firestore.FieldValue.increment(-1),
+                    });
+                }
+            }
         }
 
         const logRef = admin.firestore().collection("scoreLog").doc();
@@ -1086,7 +1102,8 @@ export const oglStartTravel = onCall(
         
         // --- THE RACE CONDITION FIX ---
         // We check the LIVE count inside the frozen transaction
-        const currentTraffic = sData?.travelingCount || 0;
+        // Station Capacity = Traveling + Arrived
+        const currentTraffic = (sData?.travelingCount || 0) + (sData?.arrivedCount || 0);
         const MAX_GROUPS = 3; // Hard limit
 
         if (currentTraffic >= MAX_GROUPS) {
@@ -1159,10 +1176,14 @@ export const oglStartTravel = onCall(
 
       // 4. NON-TRANSACTIONAL ACTIONS (Push Notifications)
       // These happen only if the transaction succeeds
-      // We reconstruct the message since we can't export it from the transaction easily
-      const groupName = (await db.collection("groups").doc(groupId).get()).data()?.name;
-      const msg = `${groupName} is heading towards your station (ETA: ${eta}).`;
-      await notifyStationMaster(stationId, msg);
+      // We wrap in try-catch so push failures don't return error to user after success
+      try {
+        const groupName = (await db.collection("groups").doc(groupId).get()).data()?.name;
+        const msg = `${groupName} is heading towards your station (ETA: ${eta}).`;
+        await notifyStationMaster(stationId, msg);
+      } catch (pushErr) {
+        console.error("Push notification failed (non-critical):", pushErr);
+      }
 
       return { success: true };
       
@@ -1200,43 +1221,72 @@ export const oglArrive = onCall(async (request: CallableRequest<void>) => {
     throw new HttpsError("failed-precondition", "No destination.");
 
   try {
-    const batch = admin.firestore().batch();
+    await admin.firestore().runTransaction(async (transaction) => {
+      const groupRef = admin.firestore().collection("groups").doc(groupId);
+      const groupSnap = await transaction.get(groupRef);
+      const gData = groupSnap.data();
 
-    batch.update(admin.firestore().collection("groups").doc(groupId), {
-      status: "ARRIVED",
+      if (gData?.status !== "TRAVELING") {
+        throw new HttpsError("failed-precondition", "You are not currently traveling.");
+      }
+
+      const currentDestination = gData?.destinationId;
+      if (!currentDestination) {
+        throw new HttpsError("failed-precondition", "No destination.");
+      }
+
+      const stationRef = admin.firestore().collection("stations").doc(currentDestination);
+      const stationSnap = await transaction.get(stationRef);
+      const sData = stationSnap.data();
+
+      // Update Group
+      transaction.update(groupRef, {
+        status: "ARRIVED",
+      });
+
+      // Update Station Count
+      transaction.update(stationRef, {
+        travelingCount: admin.firestore.FieldValue.increment(-1),
+        arrivedCount: admin.firestore.FieldValue.increment(1),
+      });
+
+      // CLOSE CHAT
+      const chatId = `chat_${groupId}_${currentDestination}`;
+      const chatRef = admin.firestore().collection("chats").doc(chatId);
+      const chatSnap = await transaction.get(chatRef);
+      if (chatSnap.exists) {
+        transaction.update(chatRef, {
+          isActive: false,
+        });
+      }
+
+      // Announcement
+      const groupName = gData?.name || "Group";
+      const message = `${groupName} has ARRIVED at your station.`;
+      const announceRef = admin.firestore().collection("announcements").doc();
+      transaction.set(announceRef, {
+        message: message,
+        targets: [`SM:${currentDestination}`],
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        createdBy: "SYSTEM",
+      });
+
+      // We'll handle the push notification after the transaction
     });
 
-    const stationRef = admin
-      .firestore()
-      .collection("stations")
-      .doc(currentDestination);
-    batch.update(stationRef, {
-      travelingCount: admin.firestore.FieldValue.increment(-1),
-      arrivedCount: admin.firestore.FieldValue.increment(1),
-    });
-
-    // CLOSE CHAT (NEW!)
-    const chatId = `chat_${groupId}_${currentDestination}`;
-    batch.update(admin.firestore().collection("chats").doc(chatId), {
-      isActive: false,
-    });
-
-    // Announcement
+    // Re-fetch for push notification (or we could have passed it out of transaction)
+    const groupDoc = await admin.firestore().collection("groups").doc(groupId).get();
+    const currentDestination = groupDoc.data()?.destinationId;
     const groupName = groupDoc.data()?.name;
     const message = `${groupName} has ARRIVED at your station.`;
-    const announceRef = admin.firestore().collection("announcements").doc();
-    batch.set(announceRef, {
-      message: message,
-      targets: [`SM:${currentDestination}`],
-      timestamp: admin.firestore.FieldValue.serverTimestamp(),
-      createdBy: "SYSTEM",
-    });
-
-    await batch.commit();
-    await notifyStationMaster(currentDestination, message);
+    
+    if (currentDestination) {
+        await notifyStationMaster(currentDestination, message);
+    }
 
     return { success: true };
   } catch (error: any) {
+    if (error instanceof HttpsError) throw error;
     throw new HttpsError("internal", error.message);
   }
 });
@@ -1264,52 +1314,75 @@ export const oglDepart = onCall(async (request: CallableRequest<void>) => {
   const currentStationId = groupDoc.data()?.destinationId;
 
   try {
-    const batch = admin.firestore().batch();
-    if (groupDoc.data()?.status === "ARRIVED" && currentStationId) {
-      batch.update(
-        admin.firestore().collection("stations").doc(currentStationId),
-        {
-          arrivedCount: admin.firestore.FieldValue.increment(-1),
-        }
-      );
-    }
-    batch.update(admin.firestore().collection("groups").doc(groupId), {
-      status: "IDLE",
-      lastStationId: currentStationId,
-      destinationId: admin.firestore.FieldValue.delete(),
-      destinationEta: admin.firestore.FieldValue.delete(),
-    });
+    let stationToNotify: string | null = null;
+    let messageToNotify: string | null = null;
 
-    // CLOSE CHAT (NEW!)
-    if (currentStationId) {
-      const chatId = `chat_${groupId}_${currentStationId}`;
-      // Check if exists first to avoid crash if no chat was started
-      const chatRef = admin.firestore().collection("chats").doc(chatId);
-      const chatDoc = await chatRef.get();
-      if (chatDoc.exists) {
-        batch.update(chatRef, { isActive: false });
+    await admin.firestore().runTransaction(async (transaction) => {
+      const groupRef = admin.firestore().collection("groups").doc(groupId);
+      const groupSnap = await transaction.get(groupRef);
+      const gData = groupSnap.data();
+
+      const status = gData?.status;
+      const currentStationId = gData?.destinationId;
+
+      if (status !== "TRAVELING" && status !== "ARRIVED") {
+        throw new HttpsError("failed-precondition", "You are not at a station.");
       }
-    }
 
-    // Notify SM
-    if (currentStationId) {
-      const groupName = groupDoc.data()?.name;
+      if (!currentStationId) {
+        throw new HttpsError("failed-precondition", "No destination found.");
+      }
+
+      // 1. Update Station Counts
+      const stationRef = admin.firestore().collection("stations").doc(currentStationId);
+      if (status === "ARRIVED") {
+        transaction.update(stationRef, {
+          arrivedCount: admin.firestore.FieldValue.increment(-1),
+        });
+      } else if (status === "TRAVELING") {
+        transaction.update(stationRef, {
+          travelingCount: admin.firestore.FieldValue.increment(-1),
+        });
+      }
+
+      // 2. Update Group
+      transaction.update(groupRef, {
+        status: "IDLE",
+        lastStationId: currentStationId,
+        destinationId: admin.firestore.FieldValue.delete(),
+        destinationEta: admin.firestore.FieldValue.delete(),
+      });
+
+      // 3. Close Chat
+      const chatId = `chat_${groupId}_${currentStationId}`;
+      const chatRef = admin.firestore().collection("chats").doc(chatId);
+      const chatSnap = await transaction.get(chatRef);
+      if (chatSnap.exists) {
+        transaction.update(chatRef, { isActive: false });
+      }
+
+      // 4. Announcement
+      const groupName = gData?.name || "Group";
       const message = `${groupName} has LEFT the station.`;
       const announceRef = admin.firestore().collection("announcements").doc();
-      batch.set(announceRef, {
+      transaction.set(announceRef, {
         message: message,
         targets: [`SM:${currentStationId}`],
         timestamp: admin.firestore.FieldValue.serverTimestamp(),
         createdBy: "SYSTEM",
       });
-      await batch.commit();
-      await notifyStationMaster(currentStationId, message);
-    } else {
-      await batch.commit();
+
+      stationToNotify = currentStationId;
+      messageToNotify = message;
+    });
+
+    if (stationToNotify && messageToNotify) {
+      await notifyStationMaster(stationToNotify, messageToNotify);
     }
 
     return { success: true };
   } catch (error: any) {
+    if (error instanceof HttpsError) throw error;
     throw new HttpsError("internal", error.message);
   }
 });
