@@ -98,8 +98,6 @@ export const RequestsList: React.FC = () => {
 
   if (loading) return <CircularProgress size={24} />;
 
-  if (requests.length === 0) return null;
-
   return (
     <Box sx={{ mb: 4 }}>
       <Typography
@@ -110,48 +108,54 @@ export const RequestsList: React.FC = () => {
         <HelpIcon /> My Help Requests
       </Typography>
       <Paper elevation={1} sx={{ borderRadius: 3, overflow: "hidden" }}>
-        <List disablePadding>
-          {requests.map((req, index) => (
-            <React.Fragment key={req.id}>
-              {index > 0 && <Divider />}
-              <ListItem
-                alignItems="flex-start"
-                sx={{ py: 2, px: 2 }}
-                secondaryAction={
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    startIcon={<ChatIcon />}
-                    onClick={() => handleChat(req)}
-                  >
-                    Chat
-                  </Button>
-                }
-              >
-                <ListItemText
-                  primary={
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", mr: 2 }}>
-                      <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-                        {req.title}
-                      </Typography>
-                      <Chip size="small" label={req.status} color={statusColor(req.status)} />
-                    </Box>
+        {requests.length === 0 ? (
+          <Box sx={{ p: 3, textAlign: "center", color: "text.secondary" }}>
+            <Typography variant="body2">No help requests yet.</Typography>
+          </Box>
+        ) : (
+          <List disablePadding>
+            {requests.map((req, index) => (
+              <React.Fragment key={req.id}>
+                {index > 0 && <Divider />}
+                <ListItem
+                  alignItems="flex-start"
+                  sx={{ py: 2, px: 2 }}
+                  secondaryAction={
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      startIcon={<ChatIcon />}
+                      onClick={() => handleChat(req)}
+                    >
+                      Chat
+                    </Button>
                   }
-                  secondary={
-                    <>
-                      <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", mb: 0.5 }}>
-                        {req.details}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {req.timestamp?.toDate().toLocaleString()}
-                      </Typography>
-                    </>
-                  }
-                />
-              </ListItem>
-            </React.Fragment>
-          ))}
-        </List>
+                >
+                  <ListItemText
+                    primary={
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", mr: 2 }}>
+                        <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                          {req.title}
+                        </Typography>
+                        <Chip size="small" label={req.status} color={statusColor(req.status)} />
+                      </Box>
+                    }
+                    secondary={
+                      <>
+                        <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", mb: 0.5 }}>
+                          {req.details}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {req.timestamp?.toDate().toLocaleString()}
+                        </Typography>
+                      </>
+                    }
+                  />
+                </ListItem>
+              </React.Fragment>
+            ))}
+          </List>
+        )}
       </Paper>
 
       {chatId && (
