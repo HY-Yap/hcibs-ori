@@ -1239,6 +1239,11 @@ export const oglArrive = onCall(async (request: CallableRequest<void>) => {
       const stationSnap = await transaction.get(stationRef);
       const sData = stationSnap.data();
 
+      // PRE-FETCH CHAT
+      const chatId = `chat_${groupId}_${currentDestination}`;
+      const chatRef = admin.firestore().collection("chats").doc(chatId);
+      const chatSnap = await transaction.get(chatRef);
+
       // Update Group
       transaction.update(groupRef, {
         status: "ARRIVED",
@@ -1251,9 +1256,6 @@ export const oglArrive = onCall(async (request: CallableRequest<void>) => {
       });
 
       // CLOSE CHAT
-      const chatId = `chat_${groupId}_${currentDestination}`;
-      const chatRef = admin.firestore().collection("chats").doc(chatId);
-      const chatSnap = await transaction.get(chatRef);
       if (chatSnap.exists) {
         transaction.update(chatRef, {
           isActive: false,
@@ -1333,6 +1335,11 @@ export const oglDepart = onCall(async (request: CallableRequest<void>) => {
         throw new HttpsError("failed-precondition", "No destination found.");
       }
 
+      // PRE-FETCH CHAT
+      const chatId = `chat_${groupId}_${currentStationId}`;
+      const chatRef = admin.firestore().collection("chats").doc(chatId);
+      const chatSnap = await transaction.get(chatRef);
+
       // 1. Update Station Counts
       const stationRef = admin.firestore().collection("stations").doc(currentStationId);
       if (status === "ARRIVED") {
@@ -1354,9 +1361,6 @@ export const oglDepart = onCall(async (request: CallableRequest<void>) => {
       });
 
       // 3. Close Chat
-      const chatId = `chat_${groupId}_${currentStationId}`;
-      const chatRef = admin.firestore().collection("chats").doc(chatId);
-      const chatSnap = await transaction.get(chatRef);
       if (chatSnap.exists) {
         transaction.update(chatRef, { isActive: false });
       }
