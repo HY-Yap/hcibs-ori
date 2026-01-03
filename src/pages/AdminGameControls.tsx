@@ -197,10 +197,12 @@ export const AdminGameControls: FC = () => {
           <Typography paragraph sx={{ color: "#473321" }}>
             Resetting the game will{" "}
             <strong>
-              delete ALL scores, progress, logs, and uploaded submissions
+              delete ALL scores, progress, logs, chats, help requests, and
+              uploaded submissions
             </strong>
-            . It will return all groups to 0 points and 'IDLE' status and remove
-            files stored under the submissions/ prefix in Cloud Storage.
+            . It will return all groups to 0 points and 'IDLE' status, reset all
+            stations to 'OPEN', and remove files stored under the submissions/
+            prefix in Cloud Storage.
           </Typography>
           <Button
             variant="outlined"

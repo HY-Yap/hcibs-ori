@@ -155,9 +155,9 @@ export const SmDashboard: React.FC = () => {
     if (!stationId) return;
     const q = collection(db, "groups");
     const unsub = onSnapshot(q, (snapshot) => {
-      const allGroups = snapshot.docs.map(
-        (d) => ({ id: d.id, ...d.data() } as GroupData)
-      );
+      const allGroups = snapshot.docs
+        .map((d) => ({ id: d.id, ...d.data() } as GroupData))
+        .sort((a, b) => a.name.localeCompare(b.name));
       setOnTheWayGroups(
         allGroups.filter(
           (g) => g.destinationId === stationId && g.status === "TRAVELING"

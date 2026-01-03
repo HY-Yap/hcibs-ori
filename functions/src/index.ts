@@ -58,7 +58,7 @@ interface ScoreData {
   stationPoints?: number;
   sideQuestId?: string;
   sideQuestPoints?: number;
-  submissionUrl?: string;
+  submissionUrl?: string | string[];
   textAnswer?: string;
 }
 
@@ -1489,10 +1489,14 @@ export const resetGame = onCall(async (request: CallableRequest<void>) => {
       });
     });
 
-    // 2. Reset ALL Station Counters to 0
+    // 2. Reset ALL Station Counters to 0 and status to OPEN
     const stations = await admin.firestore().collection("stations").get();
     stations.docs.forEach((doc: QDoc) => {
-      batch.update(doc.ref, { travelingCount: 0, arrivedCount: 0 });
+      batch.update(doc.ref, {
+        travelingCount: 0,
+        arrivedCount: 0,
+        status: "OPEN",
+      });
     });
 
     // 3. Delete ALL Score Logs
@@ -1510,17 +1514,20 @@ export const resetGame = onCall(async (request: CallableRequest<void>) => {
       batch.delete(doc.ref);
     });
 
-    // 5. NEW! Delete ALL Chats
+    // 5. NEW! Delete ALL Chats (properly with subcollections)
     const chats = await admin.firestore().collection("chats").get();
-    chats.docs.forEach((doc: QDoc) => {
-      // Note: Subcollections (messages) don't delete automatically in Firestore
-      // A true recursive delete is hard in a simple loop,
-      // but invalidating the parent 'chat' doc usually breaks the UI link enough for testing.
-      // For production, use the Firebase CLI to delete collections if they get huge.
+    const chatDeletePromises = chats.docs.map((doc: QDoc) =>
+      admin.firestore().recursiveDelete(doc.ref)
+    );
+
+    // 6. Delete ALL Help Requests
+    const requests = await admin.firestore().collection("requests").get();
+    requests.docs.forEach((doc: QDoc) => {
       batch.delete(doc.ref);
     });
 
     await batch.commit();
+    await Promise.all(chatDeletePromises);
 
     // Best-effort: delete submissions documents in Firestore (if any)
     try {
@@ -2004,9 +2011,19 @@ export const zipTaskSubmissions = onCall(
 
       for (const doc of allLogs) {
         const data = doc.data();
-        if (data.submissionUrl && !uniqueUrls.has(data.submissionUrl)) {
-          uniqueUrls.add(data.submissionUrl);
-          submissions.push(data);
+        if (data.submissionUrl) {
+          const urls = Array.isArray(data.submissionUrl)
+            ? data.submissionUrl
+            : [data.submissionUrl];
+          for (const url of urls) {
+            if (url && !uniqueUrls.has(url)) {
+              uniqueUrls.add(url);
+              submissions.push({
+                groupId: data.groupId || "unknown",
+                submissionUrl: url,
+              });
+            }
+          }
         }
       }
 

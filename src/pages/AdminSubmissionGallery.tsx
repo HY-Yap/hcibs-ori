@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import type { FC } from "react";
 import {
   Box,
@@ -27,7 +27,7 @@ interface Submission {
   id: string;
   groupId: string;
   sourceId: string; // This is the stationId or sideQuestId
-  submissionUrl?: string;
+  submissionUrl?: string | string[];
   textAnswer?: string;
   timestamp: any;
 }
@@ -160,56 +160,68 @@ export const AdminSubmissionGallery: FC = () => {
 
   // Shows a single submission card
   const renderSubmissionCard = (sub: Submission) => {
-    const url = sub.submissionUrl;
+    const urls = Array.isArray(sub.submissionUrl)
+      ? sub.submissionUrl
+      : sub.submissionUrl
+      ? [sub.submissionUrl]
+      : [];
     const text = sub.textAnswer;
-    const isVideo =
-      url?.includes(".mp4") || url?.includes(".mov") || url?.includes("video");
-    const isImage =
-      url?.includes(".jpg") ||
-      url?.includes(".jpeg") ||
-      url?.includes(".png") ||
-      url?.includes(".gif");
 
-    let media: React.ReactNode;
+    const renderMedia = (url: string, index: number) => {
+      const isVideo =
+        url.includes(".mp4") || url.includes(".mov") || url.includes("video");
+      const isImage =
+        url.includes(".jpg") ||
+        url.includes(".jpeg") ||
+        url.includes(".png") ||
+        url.includes(".gif");
 
-    if (isVideo) {
-      media = (
-        <CardMedia
-          component="video"
-          controls
-          src={url}
-          sx={{ height: 200, bgcolor: "black" }}
-        />
-      );
-    } else if (isImage) {
-      media = (
-        <CardMedia
-          component="img"
-          image={url}
-          alt="Submission"
-          sx={{ height: 200, objectFit: "cover" }}
-        />
-      );
-    } else if (url) {
-      // Fallback for non-image/video (e.g., converted HEIC, PDF)
-      media = (
-        <Box
-          sx={{
-            height: 200,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            flexDirection: "column",
-            bgcolor: "#f0f0f0",
-          }}
-        >
-          <FilePresentIcon sx={{ fontSize: 60, color: "text.secondary" }} />
-          <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
-            Preview unavailable
-          </Typography>
-        </Box>
-      );
-    }
+      if (isVideo) {
+        return (
+          <CardMedia
+            key={index}
+            component="video"
+            controls
+            src={url}
+            sx={{ height: 200, bgcolor: "black", mb: urls.length > 1 ? 1 : 0 }}
+          />
+        );
+      } else if (isImage) {
+        return (
+          <CardMedia
+            key={index}
+            component="img"
+            image={url}
+            alt={`Submission ${index + 1}`}
+            sx={{
+              height: 200,
+              objectFit: "cover",
+              mb: urls.length > 1 ? 1 : 0,
+            }}
+          />
+        );
+      } else {
+        return (
+          <Box
+            key={index}
+            sx={{
+              height: 200,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexDirection: "column",
+              bgcolor: "#f0f0f0",
+              mb: urls.length > 1 ? 1 : 0,
+            }}
+          >
+            <FilePresentIcon sx={{ fontSize: 60, color: "text.secondary" }} />
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
+              Preview unavailable
+            </Typography>
+          </Box>
+        );
+      }
+    };
 
     return (
       <Card
@@ -221,7 +233,9 @@ export const AdminSubmissionGallery: FC = () => {
           flexDirection: "column",
         }}
       >
-        {media}
+        <Box sx={{ maxHeight: 400, overflowY: "auto" }}>
+          {urls.map((url, idx) => renderMedia(url, idx))}
+        </Box>
         <CardContent sx={{ bgcolor: "#f9f9f9", flexGrow: 1 }}>
           <Typography variant="subtitle1" sx={{ fontWeight: "bold" }}>
             {groups[sub.groupId]?.name || "Unknown Group"}
@@ -256,16 +270,21 @@ export const AdminSubmissionGallery: FC = () => {
             </Box>
           )}
 
-          {url && <br />}
-          {url && (
-            <Link
-              href={url}
-              target="_blank"
-              rel="noopener noreferrer"
-              variant="body2"
-            >
-              View full file
-            </Link>
+          {urls.length > 0 && (
+            <Box sx={{ mt: 1 }}>
+              {urls.map((url, idx) => (
+                <Link
+                  key={idx}
+                  href={url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  variant="body2"
+                  sx={{ display: "block", mb: 0.5 }}
+                >
+                  View full file {urls.length > 1 ? idx + 1 : ""}
+                </Link>
+              ))}
+            </Box>
           )}
         </CardContent>
       </Card>

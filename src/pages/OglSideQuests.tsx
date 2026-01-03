@@ -52,7 +52,7 @@ export const OglSideQuests: FC = () => {
   // Form state for the currently active quest
   const [activeQuestId, setActiveQuestId] = useState<string | null>(null);
   const [textAnswer, setTextAnswer] = useState("");
-  const [submissionUrl, setSubmissionUrl] = useState<string | null>(null);
+  const [submissionUrls, setSubmissionUrls] = useState<string[]>([]);
 
   // helper to create safe slug from a name
   const slugify = (s?: string | null) =>
@@ -66,8 +66,8 @@ export const OglSideQuests: FC = () => {
     `submissions/${profile?.groupId}/${slugify(quest.name)}/`;
 
   // Remove uploaded file: try client-side delete first, then fall back to callable 'deleteSubmission'
-  const handleRemoveFile = async () => {
-    setSubmissionUrl(null); // Simplified for this block
+  const handleRemoveFile = (urlToRemove: string) => {
+    setSubmissionUrls((prev) => prev.filter((url) => url !== urlToRemove));
   };
 
   useEffect(() => {
@@ -107,8 +107,8 @@ export const OglSideQuests: FC = () => {
         : quest.submissionType;
 
     // For photo/video quests, a file upload is mandatory
-    if (currentSubmissionType !== "none" && !submissionUrl) {
-      alert("Please upload a file for this quest.");
+    if (currentSubmissionType !== "none" && submissionUrls.length === 0) {
+      alert("Please upload at least one file for this quest.");
       return;
     }
 
@@ -119,11 +119,11 @@ export const OglSideQuests: FC = () => {
         groupId: profile.groupId,
         sideQuestId: quest.id,
         type: "SIDE_QUEST",
-        submissionUrl: submissionUrl || null,
+        submissionUrl: submissionUrls.length > 0 ? submissionUrls : null,
         textAnswer: textAnswer || null,
       });
       setActiveQuestId(null);
-      setSubmissionUrl(null);
+      setSubmissionUrls([]);
       setTextAnswer("");
     } catch (err: any) {
       alert(err.message);
@@ -408,16 +408,48 @@ export const OglSideQuests: FC = () => {
                     <Box sx={{ mt: 2 }}>
                       {displaySubmissionType !== "none" && (
                         <Box sx={{ mb: 2 }}>
-                          {/* Simplified File Upload Logic for brevity */}
-                          {!submissionUrl ? (
-                            <FileUpload
-                              uploadPath={getUploadPath(quest)}
-                              onUploadComplete={setSubmissionUrl}
-                            />
-                          ) : (
-                            <Button color="error" onClick={handleRemoveFile}>
-                              Remove File
-                            </Button>
+                          <FileUpload
+                            uploadPath={getUploadPath(quest)}
+                            onUploadComplete={(url) =>
+                              setSubmissionUrls((prev) => [...prev, url])
+                            }
+                          />
+                          {submissionUrls.length > 0 && (
+                            <Box sx={{ mt: 1 }}>
+                              <Typography variant="caption" display="block">
+                                Uploaded Files:
+                              </Typography>
+                              {submissionUrls.map((url, idx) => (
+                                <Box
+                                  key={idx}
+                                  sx={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 1,
+                                    mt: 0.5,
+                                  }}
+                                >
+                                  <Typography
+                                    variant="caption"
+                                    sx={{
+                                      maxWidth: 200,
+                                      overflow: "hidden",
+                                      textOverflow: "ellipsis",
+                                      whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    File {idx + 1}
+                                  </Typography>
+                                  <Button
+                                    size="small"
+                                    color="error"
+                                    onClick={() => handleRemoveFile(url)}
+                                  >
+                                    Remove
+                                  </Button>
+                                </Box>
+                              ))}
+                            </Box>
                           )}
                         </Box>
                       )}
@@ -434,7 +466,8 @@ export const OglSideQuests: FC = () => {
                           onClick={() => handleSubmit(quest)}
                           disabled={
                             !!submittingId ||
-                            (displaySubmissionType !== "none" && !submissionUrl)
+                            (displaySubmissionType !== "none" &&
+                              submissionUrls.length === 0)
                           }
                         >
                           {submittingId === quest.id ? (

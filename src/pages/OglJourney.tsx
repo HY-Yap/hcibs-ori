@@ -268,7 +268,7 @@ export const OglJourney: FC = () => {
   const [eta, setEta] = useState("");
 
   // Submission State
-  const [submissionUrl, setSubmissionUrl] = useState<string | null>(null);
+  const [submissionUrls, setSubmissionUrls] = useState<string[]>([]);
   const [textAnswer, setTextAnswer] = useState("");
   const [groupName, setGroupName] = useState<string | null>(null); // ADD THIS
 
@@ -312,8 +312,7 @@ export const OglJourney: FC = () => {
   };
 
   // Remove uploaded file
-  const handleRemoveFile = async () => {
-    if (!submissionUrl) return;
+  const handleRemoveFile = async (urlToRemove: string) => {
     if (
       !window.confirm(
         "Remove uploaded file? This will delete the file from storage."
@@ -322,13 +321,13 @@ export const OglJourney: FC = () => {
       return;
     setActionLoading(true);
     try {
-      const path = extractStoragePathFromUrl(submissionUrl);
+      const path = extractStoragePathFromUrl(urlToRemove);
       if (path) {
         try {
           const storage = getStorage();
           await deleteObject(storageRef(storage, path));
           console.log("Client-side storage delete succeeded:", path);
-          setSubmissionUrl(null);
+          setSubmissionUrls((prev) => prev.filter((u) => u !== urlToRemove));
           return;
         } catch (err) {
           console.warn("Client-side delete failed, will try server-side:", err);
@@ -341,12 +340,12 @@ export const OglJourney: FC = () => {
 
       // fallback to server-side deletion
       const fn = httpsCallable(firebaseFunctions, "deleteSubmission");
-      await fn({ groupId: profile?.groupId, submissionUrl });
+      await fn({ groupId: profile?.groupId, submissionUrl: urlToRemove });
       console.log(
         "Server-side deleteSubmission succeeded for URL:",
-        submissionUrl
+        urlToRemove
       );
-      setSubmissionUrl(null);
+      setSubmissionUrls((prev) => prev.filter((u) => u !== urlToRemove));
     } catch (err: any) {
       console.error("Failed to remove file:", err);
       alert(
@@ -360,7 +359,7 @@ export const OglJourney: FC = () => {
   // Reset submission when arriving
   useEffect(() => {
     if (groupData?.status === "ARRIVED") {
-      setSubmissionUrl(null);
+      setSubmissionUrls([]);
       setTextAnswer("");
     }
   }, [groupData?.status, groupData?.destinationId]);
@@ -474,8 +473,8 @@ export const OglJourney: FC = () => {
 
   const handleSubmitUnmanned = async (station: StationData) => {
     if (!profile?.groupId) return;
-    if (!textAnswer && !submissionUrl) {
-      alert("Please provide a text answer or upload a file.");
+    if (!textAnswer && submissionUrls.length === 0) {
+      alert("Please provide a text answer or upload at least one file.");
       return;
     }
     setActionLoading(true);
@@ -485,10 +484,10 @@ export const OglJourney: FC = () => {
         groupId: profile.groupId,
         stationId: station.id,
         type: "STATION",
-        submissionUrl: submissionUrl || null,
+        submissionUrl: submissionUrls.length > 0 ? submissionUrls : null,
         textAnswer: textAnswer || null,
       });
-      setSubmissionUrl(null);
+      setSubmissionUrls([]);
       setTextAnswer("");
     } catch (err: any) {
       alert(`Error: ${err.message}`);
@@ -738,59 +737,69 @@ export const OglJourney: FC = () => {
                 <Typography variant="subtitle2" gutterBottom>
                   Upload Proof:
                 </Typography>
-                {submissionUrl ? (
-                  <Paper
-                    variant="outlined"
-                    sx={{
-                      p: 1,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      borderColor: "success.main",
-                      mt: 1,
-                    }}
-                  >
-                    <Box>
-                      <Typography
-                        variant="body2"
-                        fontWeight={600}
-                        color="success.dark"
+                <FileUpload
+                  uploadPath={getUploadPath(currentStation || undefined)}
+                  onUploadComplete={(url) =>
+                    setSubmissionUrls((prev) => [...prev, url])
+                  }
+                />
+                {submissionUrls.length > 0 && (
+                  <Box sx={{ mt: 2 }}>
+                    <Typography variant="subtitle2" gutterBottom>
+                      Uploaded Files:
+                    </Typography>
+                    {submissionUrls.map((url, idx) => (
+                      <Paper
+                        key={idx}
+                        variant="outlined"
+                        sx={{
+                          p: 1,
+                          mb: 1,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          borderColor: "success.main",
+                          bgcolor: "rgba(0,0,0,0.02)",
+                        }}
                       >
-                        File uploaded
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        <a
-                          href={submissionUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={{ color: "inherit" }}
+                        <Box>
+                          <Typography
+                            variant="body2"
+                            fontWeight={600}
+                            color="success.dark"
+                          >
+                            File {idx + 1}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            <a
+                              href={url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{ color: "inherit" }}
+                            >
+                              View submission
+                            </a>
+                          </Typography>
+                        </Box>
+                        <Button
+                          size="small"
+                          color="error"
+                          variant="outlined"
+                          onClick={() => handleRemoveFile(url)}
+                          disabled={actionLoading}
                         >
-                          View submission
-                        </a>
-                      </Typography>
-                    </Box>
-                    <Button
-                      size="small"
-                      color="error"
-                      variant="outlined"
-                      onClick={handleRemoveFile}
-                      disabled={actionLoading}
-                    >
-                      Remove
-                    </Button>
-                  </Paper>
-                ) : (
-                  <FileUpload
-                    uploadPath={getUploadPath(currentStation || undefined)}
-                    onUploadComplete={(url) => setSubmissionUrl(url)}
-                  />
+                          Remove
+                        </Button>
+                      </Paper>
+                    ))}
+                  </Box>
                 )}
               </Box>
 
               <Button
                 variant="contained"
                 color="success"
-                disabled={actionLoading || !submissionUrl}
+                disabled={actionLoading || submissionUrls.length === 0}
                 onClick={() => handleSubmitUnmanned(currentStation!)}
                 sx={{ mt: 1, py: 1.5 }}
               >
