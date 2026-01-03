@@ -303,6 +303,7 @@ export const ChatWindow: FC<Props> = ({ chatId, title, onClose }) => {
       <Box
         sx={{
           p: 2,
+          pb: { xs: 5, md: 2 }, // Bottom padding: 4 on mobile, 2 on desktop
           bgcolor: "white",
           borderTop: "1px solid #e0e0e0",
           display: "flex",

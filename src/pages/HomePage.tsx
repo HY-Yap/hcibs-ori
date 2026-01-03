@@ -77,8 +77,12 @@ export const HomePage: FC = () => {
     if (loreSection) {
       const elementRect = loreSection.getBoundingClientRect();
       const absoluteElementTop = elementRect.top + window.pageYOffset;
-      const middle =
-        absoluteElementTop - window.innerHeight / 2 + elementRect.height / 2;
+
+      // On mobile (< 768px), scroll to top; on desktop, scroll to center
+      const isMobile = window.innerWidth < 768;
+      const middle = isMobile
+        ? absoluteElementTop
+        : absoluteElementTop - window.innerHeight / 2 + elementRect.height / 2;
 
       // Custom smooth scroll with longer duration
       const startPosition = window.pageYOffset;

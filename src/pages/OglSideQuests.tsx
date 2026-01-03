@@ -12,7 +12,13 @@ import {
   Alert,
 } from "@mui/material";
 import { useAuth } from "../context/AuthContext";
-import { collection, onSnapshot, query, orderBy, doc } from "firebase/firestore";
+import {
+  collection,
+  onSnapshot,
+  query,
+  orderBy,
+  doc,
+} from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, functions as firebaseFunctions } from "../firebase";
 import { FileUpload } from "../components/FileUpload";
@@ -67,9 +73,12 @@ export const OglSideQuests: FC = () => {
   useEffect(() => {
     const q = query(collection(db, "sideQuests"), orderBy("name"));
     const unsub = onSnapshot(q, (snap) => {
-      setQuests(
-        snap.docs.map((d) => ({ id: d.id, ...d.data() } as SideQuestData))
+      const fetchedQuests = snap.docs.map(
+        (d) => ({ id: d.id, ...d.data() } as SideQuestData)
       );
+      // Sort by points in ascending order
+      fetchedQuests.sort((a, b) => a.points - b.points);
+      setQuests(fetchedQuests);
     });
     return () => unsub();
   }, []);
@@ -92,9 +101,10 @@ export const OglSideQuests: FC = () => {
     const isStageOneDone = groupData?.stageOneCompletedSideQuests?.includes(
       quest.id
     );
-    const currentSubmissionType = quest.hasSecondStage && isStageOneDone
-      ? quest.secondSubmissionType
-      : quest.submissionType;
+    const currentSubmissionType =
+      quest.hasSecondStage && isStageOneDone
+        ? quest.secondSubmissionType
+        : quest.submissionType;
 
     // For photo/video quests, a file upload is mandatory
     if (currentSubmissionType !== "none" && !submissionUrl) {
@@ -158,7 +168,11 @@ export const OglSideQuests: FC = () => {
             <CardContent>
               <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                 <Typography variant="h6">{quest.name}</Typography>
-                <Chip label={`${quest.points} pts`} color="primary" size="small" />
+                <Chip
+                  label={`${quest.points} pts`}
+                  color="primary"
+                  size="small"
+                />
               </Box>
 
               {/* MODIFIED: Enhanced Markdown Rendering */}
@@ -169,104 +183,137 @@ export const OglSideQuests: FC = () => {
                   let i = 0;
                   while (i < lines.length) {
                     const line = lines[i];
-                  const parseStyles = (text: string) => {
-                    // Added _.*?_ for underline
-                    const parts = text.split(
-                      /(\*\*\*.*?\*\*\*|\*\*.*?\*\*|\*.*?\*|_.*?_)/g
-                    );
-                    return parts.map((part, j) => {
-                      if (part.startsWith("***") && part.endsWith("***")) {
-                        return (
-                          <span
-                            key={j}
-                            style={{
-                              fontWeight: "bold",
-                              fontStyle: "italic",
-                            }}
-                          >
-                            {part.slice(3, -3)}
-                          </span>
-                        );
-                      }
-                      if (part.startsWith("**") && part.endsWith("**")) {
-                        return <strong key={j}>{part.slice(2, -2)}</strong>;
-                      }
-                      if (part.startsWith("*") && part.endsWith("*")) {
-                        return <em key={j}>{part.slice(1, -1)}</em>;
-                      }
-                      if (part.startsWith("_") && part.endsWith("_")) {
-                        return <u key={j}>{part.slice(1, -1)}</u>;
-                      }
-                      return <span key={j}>{part}</span>;
-                    });
-                  };
-
-                  const parseInline = (text: string) => {
-                    // Split by images first
-                    const parts = text.split(/(<img src=".*?">)/g);
-
-                    return parts.map((part, i) => {
-                      const imgMatch = part.match(/^<img src="(.*?)">$/);
-                      if (imgMatch) {
-                        return (
-                          <Box
-                            key={`img-${i}`}
-                            component="img"
-                            src={imgMatch[1]}
-                            alt="Markdown Image"
-                            sx={{ maxWidth: "100%", borderRadius: 1, my: 1, display: "block" }}
-                          />
-                        );
-                      }
-
-                      const linkParts = part.split(/(\[.*?\]\(.*?\))/g);
-                      return linkParts.map((subPart, j) => {
-                        const linkMatch = subPart.match(/^\[(.*?)\]\((.*?)\)$/);
-                        if (linkMatch) {
+                    const parseStyles = (text: string) => {
+                      // Added _.*?_ for underline
+                      const parts = text.split(
+                        /(\*\*\*.*?\*\*\*|\*\*.*?\*\*|\*.*?\*|_.*?_)/g
+                      );
+                      return parts.map((part, j) => {
+                        if (part.startsWith("***") && part.endsWith("***")) {
                           return (
-                            <a
-                              key={`link-${i}-${j}`}
-                              href={linkMatch[2]}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                            <span
+                              key={j}
                               style={{
-                                color: "#1976d2",
-                                textDecoration: "underline",
+                                fontWeight: "bold",
+                                fontStyle: "italic",
                               }}
                             >
-                              {parseStyles(linkMatch[1])}
-                            </a>
+                              {part.slice(3, -3)}
+                            </span>
                           );
                         }
-                        return parseStyles(subPart);
+                        if (part.startsWith("**") && part.endsWith("**")) {
+                          return <strong key={j}>{part.slice(2, -2)}</strong>;
+                        }
+                        if (part.startsWith("*") && part.endsWith("*")) {
+                          return <em key={j}>{part.slice(1, -1)}</em>;
+                        }
+                        if (part.startsWith("_") && part.endsWith("_")) {
+                          return <u key={j}>{part.slice(1, -1)}</u>;
+                        }
+                        return <span key={j}>{part}</span>;
                       });
-                    });
-                  };
+                    };
+
+                    const parseInline = (text: string) => {
+                      // Split by images first
+                      const parts = text.split(/(<img src=".*?">)/g);
+
+                      return parts.map((part, i) => {
+                        const imgMatch = part.match(/^<img src="(.*?)">$/);
+                        if (imgMatch) {
+                          return (
+                            <Box
+                              key={`img-${i}`}
+                              component="img"
+                              src={imgMatch[1]}
+                              alt="Markdown Image"
+                              sx={{
+                                maxWidth: "100%",
+                                borderRadius: 1,
+                                my: 1,
+                                display: "block",
+                              }}
+                            />
+                          );
+                        }
+
+                        const linkParts = part.split(/(\[.*?\]\(.*?\))/g);
+                        return linkParts.map((subPart, j) => {
+                          const linkMatch =
+                            subPart.match(/^\[(.*?)\]\((.*?)\)$/);
+                          if (linkMatch) {
+                            return (
+                              <a
+                                key={`link-${i}-${j}`}
+                                href={linkMatch[2]}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{
+                                  color: "#1976d2",
+                                  textDecoration: "underline",
+                                }}
+                              >
+                                {parseStyles(linkMatch[1])}
+                              </a>
+                            );
+                          }
+                          return parseStyles(subPart);
+                        });
+                      });
+                    };
 
                     // Headers
                     if (line.startsWith("### ")) {
                       nodes.push(
-                        <Typography key={`h3-${i}`} variant="subtitle2" sx={{ fontWeight: "bold", mt: 1, color: "text.primary" }}>
+                        <Typography
+                          key={`h3-${i}`}
+                          variant="subtitle2"
+                          sx={{
+                            fontWeight: "bold",
+                            mt: 1,
+                            color: "text.primary",
+                          }}
+                        >
                           {parseInline(line.slice(4))}
                         </Typography>
                       );
-                      i++; continue;
+                      i++;
+                      continue;
                     }
                     if (line.startsWith("## ")) {
                       nodes.push(
-                        <Typography key={`h2-${i}`} variant="subtitle1" sx={{ fontWeight: "bold", mt: 1.5, color: "text.primary" }}>
+                        <Typography
+                          key={`h2-${i}`}
+                          variant="subtitle1"
+                          sx={{
+                            fontWeight: "bold",
+                            mt: 1.5,
+                            color: "text.primary",
+                          }}
+                        >
                           {parseInline(line.slice(3))}
                         </Typography>
                       );
-                      i++; continue;
+                      i++;
+                      continue;
                     }
                     if (line.startsWith("# ")) {
                       nodes.push(
-                        <Typography key={`h1-${i}`} variant="h6" sx={{ fontWeight: "bold", mt: 2, color: "text.primary" }}>
+                        <Typography
+                          key={`h1-${i}`}
+                          variant="h6"
+                          sx={{
+                            fontWeight: "bold",
+                            mt: 2,
+                            color: "text.primary",
+                          }}
+                        >
                           {parseInline(line.slice(2))}
                         </Typography>
                       );
-                      i++; continue;
+                      i++;
+                      continue;
                     }
 
                     // Grouped Blockquote
@@ -275,14 +322,29 @@ export const OglSideQuests: FC = () => {
                       const start = i;
                       while (i < lines.length && lines[i].startsWith("> ")) {
                         const content = parseInline(lines[i].slice(2));
-                        quotePieces.push(<span key={`qline-${i}`}>{content}</span>);
-                        if (i + 1 < lines.length && lines[i + 1].startsWith("> ")) {
+                        quotePieces.push(
+                          <span key={`qline-${i}`}>{content}</span>
+                        );
+                        if (
+                          i + 1 < lines.length &&
+                          lines[i + 1].startsWith("> ")
+                        ) {
                           quotePieces.push(<br key={`qbr-${i}`} />);
                         }
                         i++;
                       }
                       nodes.push(
-                        <Box key={`quote-${start}`} sx={{ borderLeft: "4px solid #ccc", pl: 2, py: 0.5, my: 1, bgcolor: "rgba(0,0,0,0.03)", fontStyle: "italic" }}>
+                        <Box
+                          key={`quote-${start}`}
+                          sx={{
+                            borderLeft: "4px solid #ccc",
+                            pl: 2,
+                            py: 0.5,
+                            my: 1,
+                            bgcolor: "rgba(0,0,0,0.03)",
+                            fontStyle: "italic",
+                          }}
+                        >
                           <Typography variant="body2">{quotePieces}</Typography>
                         </Box>
                       );
@@ -294,10 +356,13 @@ export const OglSideQuests: FC = () => {
                       nodes.push(
                         <Box key={`ul-${i}`} sx={{ display: "flex", ml: 1 }}>
                           <Typography sx={{ mr: 1 }}>•</Typography>
-                          <Typography variant="body2">{parseInline(line.slice(2))}</Typography>
+                          <Typography variant="body2">
+                            {parseInline(line.slice(2))}
+                          </Typography>
                         </Box>
                       );
-                      i++; continue;
+                      i++;
+                      continue;
                     }
 
                     // Ordered List
@@ -305,15 +370,25 @@ export const OglSideQuests: FC = () => {
                     if (orderedMatch) {
                       nodes.push(
                         <Box key={`ol-${i}`} sx={{ display: "flex", ml: 1 }}>
-                          <Typography sx={{ mr: 1, fontWeight: "bold" }}>{orderedMatch[1]}.</Typography>
-                          <Typography variant="body2">{parseInline(orderedMatch[2])}</Typography>
+                          <Typography sx={{ mr: 1, fontWeight: "bold" }}>
+                            {orderedMatch[1]}.
+                          </Typography>
+                          <Typography variant="body2">
+                            {parseInline(orderedMatch[2])}
+                          </Typography>
                         </Box>
                       );
-                      i++; continue;
+                      i++;
+                      continue;
                     }
 
                     nodes.push(
-                      <Typography key={`p-${i}`} variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                      <Typography
+                        key={`p-${i}`}
+                        variant="body2"
+                        color="text.secondary"
+                        sx={{ mb: 0.5 }}
+                      >
                         {parseInline(line)}
                       </Typography>
                     );
@@ -340,10 +415,7 @@ export const OglSideQuests: FC = () => {
                               onUploadComplete={setSubmissionUrl}
                             />
                           ) : (
-                            <Button
-                              color="error"
-                              onClick={handleRemoveFile}
-                            >
+                            <Button color="error" onClick={handleRemoveFile}>
                               Remove File
                             </Button>
                           )}
@@ -360,7 +432,10 @@ export const OglSideQuests: FC = () => {
                         <Button
                           variant="contained"
                           onClick={() => handleSubmit(quest)}
-                          disabled={!!submittingId || (displaySubmissionType !== "none" && !submissionUrl)}
+                          disabled={
+                            !!submittingId ||
+                            (displaySubmissionType !== "none" && !submissionUrl)
+                          }
                         >
                           {submittingId === quest.id ? (
                             <CircularProgress size={24} />
