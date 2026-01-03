@@ -1,4 +1,4 @@
-import React, { useState, Fragment, type MouseEvent, useEffect } from "react"; // Added useEffect
+import React, { useState, Fragment, type MouseEvent, useEffect, useRef } from "react"; // Added useEffect, useRef
 import {
   AppBar,
   Box,
@@ -70,6 +70,7 @@ const Header: React.FC = () => {
   const [notifyMessage, setNotifyMessage] = useState("");
   const [lastAnnounceId, setLastAnnounceId] = useState<string | null>(null);
   const [loadTime] = useState(() => new Date());
+  const lastAnnounceIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     // Listen to recent announcements and show the first relevant one
@@ -107,18 +108,19 @@ const Header: React.FC = () => {
         ) {
           isRelevant = true;
         }
-        return isRelevant && d.id !== lastAnnounceId;
+        return isRelevant;
       });
 
-      if (firstRelevant) {
+      if (firstRelevant && firstRelevant.id !== lastAnnounceIdRef.current) {
         const data = firstRelevant.data();
         setNotifyMessage(data.message);
         setNotifyOpen(true);
         setLastAnnounceId(firstRelevant.id);
+        lastAnnounceIdRef.current = firstRelevant.id;
       }
     });
     return () => unsub();
-  }, [profile, lastAnnounceId, loadTime]);
+  }, [profile, loadTime]);
 
   const handleLoginOpen = () => setLoginOpen(true);
   const handleLoginClose = () => setLoginOpen(false);
@@ -166,7 +168,7 @@ const Header: React.FC = () => {
         { name: "Station List", path: "/stations" },
         { name: "Side Quest List", path: "/sidequests" },
         { name: "DIVIDER", path: "", isDivider: true },
-        { name: "Annotated MRT Map", path: "/mrt-map.pdf", isExternal: true },
+        { name: "Annotated MRT Map", path: "/AmazingRaceStation_Map.pdf", isExternal: true },
       ],
     },
     { type: "link", name: "Leaderboard", path: "/leaderboard" },
@@ -482,6 +484,7 @@ const Header: React.FC = () => {
 
       {/* NEW: Global Notification Snackbar */}
       <Snackbar
+        key={lastAnnounceId || "none"}
         open={notifyOpen}
         autoHideDuration={5000}
         onClose={() => setNotifyOpen(false)}
