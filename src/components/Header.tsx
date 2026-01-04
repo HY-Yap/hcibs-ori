@@ -168,7 +168,7 @@ const Header: React.FC = () => {
         { name: "Station List", path: "/stations" },
         { name: "Side Quest List", path: "/sidequests" },
         { name: "DIVIDER", path: "", isDivider: true },
-        { name: "Annotated MRT Map", path: "/AmazingRaceStation_Map.pdf", isExternal: true },
+        { name: "Annotated MRT Map", path: "/mrt-map.jpg", isExternal: true },
       ],
     },
     { type: "link", name: "Leaderboard", path: "/leaderboard" },
