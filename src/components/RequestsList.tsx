@@ -36,6 +36,8 @@ interface RequestData {
   status: "OPEN" | "RESOLVED" | "INVALID";
   sentByUid: string;
   sentByName: string;
+  acceptedByUid?: string;
+  acceptedByName?: string;
 }
 
 export const RequestsList: React.FC = () => {
@@ -121,14 +123,27 @@ export const RequestsList: React.FC = () => {
                   alignItems="flex-start"
                   sx={{ py: 2, px: 2 }}
                   secondaryAction={
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      startIcon={<ChatIcon />}
-                      onClick={() => handleChat(req)}
-                    >
-                      Chat
-                    </Button>
+                    req.status === "OPEN" && req.acceptedByUid ? (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<ChatIcon />}
+                        onClick={() => handleChat(req)}
+                      >
+                        Chat
+                      </Button>
+                    ) : req.status === "OPEN" ? (
+                      <Chip label="Waiting for Admin" size="small" variant="outlined" />
+                    ) : (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<ChatIcon />}
+                        onClick={() => handleChat(req)}
+                      >
+                        View Chat
+                      </Button>
+                    )
                   }
                 >
                   <ListItemText
@@ -145,6 +160,11 @@ export const RequestsList: React.FC = () => {
                         <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", mb: 0.5 }}>
                           {req.details}
                         </Typography>
+                        {req.acceptedByName && (
+                          <Typography variant="caption" display="block" color="info.main" sx={{ fontWeight: 600, mb: 0.5 }}>
+                            Attended by: {req.acceptedByName}
+                          </Typography>
+                        )}
                         <Typography variant="caption" color="text.secondary">
                           {req.timestamp?.toDate().toLocaleString()}
                         </Typography>

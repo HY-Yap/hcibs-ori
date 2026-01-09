@@ -22,6 +22,9 @@ import ReportProblemIcon from "@mui/icons-material/ReportProblem";
 import RestoreIcon from "@mui/icons-material/Restore";
 import HelpIcon from "@mui/icons-material/Help";
 import SearchIcon from "@mui/icons-material/Search";
+import AssignmentIndIcon from "@mui/icons-material/AssignmentInd";
+import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
+import CancelIcon from "@mui/icons-material/Cancel";
 import {
   collection,
   query,
@@ -48,6 +51,8 @@ interface RequestData {
   groupId?: string;
   senderRole?: "OGL" | "SM";
   selectedStationId?: string;
+  acceptedByUid?: string;
+  acceptedByName?: string;
 }
 
 export const AdminRequestManagement: React.FC = () => {
@@ -146,10 +151,32 @@ export const AdminRequestManagement: React.FC = () => {
 
   const updateStatus = async (req: RequestData, status: RequestData["status"]) => {
     if (!currentUser) return;
-    await updateDoc(doc(db, "requests", req.id), {
+    const updates: any = {
       status,
       updatedAt: serverTimestamp(),
       updatedBy: currentUser.uid,
+    };
+    if (status === "OPEN") {
+      updates.acceptedByUid = null;
+      updates.acceptedByName = null;
+    }
+    await updateDoc(doc(db, "requests", req.id), updates);
+  };
+
+  const acceptRequest = async (req: RequestData) => {
+    if (!currentUser) return;
+    await updateDoc(doc(db, "requests", req.id), {
+      acceptedByUid: currentUser.uid,
+      acceptedByName: currentUser.displayName || "Admin",
+      updatedAt: serverTimestamp(),
+    });
+  };
+
+  const transferRequest = async (req: RequestData) => {
+    await updateDoc(doc(db, "requests", req.id), {
+      acceptedByUid: null,
+      acceptedByName: null,
+      updatedAt: serverTimestamp(),
     });
   };
 
@@ -249,38 +276,78 @@ export const AdminRequestManagement: React.FC = () => {
                       </>
                     }
                   />
-                  <Box sx={{ display: "flex", flexDirection: "column", gap: 1, ml: 2 }}>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      startIcon={<ChatIcon />}
-                      onClick={() => handleChat(req)}
-                    >
-                      Chat
-                    </Button>
-                    {req.status !== "RESOLVED" && (
-                      <Button
-                        size="small"
-                        variant="contained"
-                        color="success"
-                        startIcon={<CheckCircleIcon />}
-                        onClick={() => updateStatus(req, "RESOLVED")}
-                      >
-                        Resolve
-                      </Button>
-                    )}
-                    {req.status !== "INVALID" && (
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        color="warning"
-                        startIcon={<ReportProblemIcon />}
-                        onClick={() => updateStatus(req, "INVALID")}
-                      >
-                        Invalid
-                      </Button>
-                    )}
-                    {req.status !== "OPEN" && (
+                  <Box sx={{ display: "flex", flexDirection: "column", gap: 1, ml: 2, minWidth: 120 }}>
+                    {req.status === "OPEN" ? (
+                      !req.acceptedByUid ? (
+                        <>
+                          <Button
+                            size="small"
+                            variant="contained"
+                            color="primary"
+                            startIcon={<AssignmentIndIcon />}
+                            onClick={() => acceptRequest(req)}
+                          >
+                            Accept
+                          </Button>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            color="error"
+                            startIcon={<CancelIcon />}
+                            onClick={() => updateStatus(req, "INVALID")}
+                          >
+                            Reject
+                          </Button>
+                        </>
+                      ) : req.acceptedByUid === currentUser?.uid ? (
+                        <>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            startIcon={<ChatIcon />}
+                            onClick={() => handleChat(req)}
+                          >
+                            Chat
+                          </Button>
+                          <Button
+                            size="small"
+                            variant="contained"
+                            color="success"
+                            startIcon={<CheckCircleIcon />}
+                            onClick={() => updateStatus(req, "RESOLVED")}
+                          >
+                            Resolve
+                          </Button>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            color="warning"
+                            startIcon={<ReportProblemIcon />}
+                            onClick={() => updateStatus(req, "INVALID")}
+                          >
+                            Invalid
+                          </Button>
+                          <Button
+                            size="small"
+                            variant="text"
+                            color="info"
+                            startIcon={<SwapHorizIcon />}
+                            onClick={() => transferRequest(req)}
+                          >
+                            Transfer
+                          </Button>
+                        </>
+                      ) : (
+                        <Box sx={{ textAlign: "center", py: 1 }}>
+                          <Chip
+                            icon={<AssignmentIndIcon />}
+                            label={`Taken by ${req.acceptedByName}`}
+                            variant="outlined"
+                            size="small"
+                          />
+                        </Box>
+                      )
+                    ) : (
                       <Button
                         size="small"
                         variant="text"
