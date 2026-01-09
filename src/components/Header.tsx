@@ -1,4 +1,10 @@
-import React, { useState, Fragment, type MouseEvent, useEffect, useRef } from "react"; // Added useEffect, useRef
+import React, {
+  useState,
+  Fragment,
+  type MouseEvent,
+  useEffect,
+  useRef,
+} from "react"; // Added useEffect, useRef
 import {
   AppBar,
   Box,
@@ -168,7 +174,7 @@ const Header: React.FC = () => {
         { name: "Station List", path: "/stations" },
         { name: "Side Quest List", path: "/sidequests" },
         { name: "DIVIDER", path: "", isDivider: true },
-        { name: "Annotated MRT Map", path: "/mrt-map.jpg", isExternal: true },
+        { name: "Annotated MRT Map", path: "/mrt-map", isExternal: false },
       ],
     },
     { type: "link", name: "Leaderboard", path: "/leaderboard" },

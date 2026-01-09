@@ -23,6 +23,7 @@ import { ProfilePage } from "./pages/Profile";
 import { AdminSubmissionGallery } from "./pages/AdminSubmissionGallery";
 import { AdminAnnouncementManagement } from "./pages/AdminAnnouncementManagement";
 import { AdminRequestManagement } from "./pages/AdminRequestManagement";
+import { MRTMapPage } from "./pages/MRTMap";
 
 // Import all our components
 import { Layout } from "./components/Layout";
@@ -43,6 +44,7 @@ function App() {
             <Route path="leaderboard" element={<LeaderboardPage />} />
             <Route path="stations" element={<StationsPage />} />
             <Route path="sidequests" element={<SideQuestsPage />} />
+            <Route path="mrt-map" element={<MRTMapPage />} />
             {/* Protected profile route for logged-in roles (ADMIN, SM, OGL) */}
             <Route
               element={<ProtectedRoute allowedRoles={["ADMIN", "SM", "OGL"]} />}

@@ -544,10 +544,10 @@ export const HomePage: FC = () => {
             }}
           >
             <Button
+              component={Link}
+              to="/mrt-map"
               variant="outlined"
               color="primary"
-              href="/mrt-map.pdf"
-              target="_blank"
             >
               Annotated MRT Map
             </Button>
