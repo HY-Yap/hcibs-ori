@@ -11,7 +11,6 @@ node_modules
 dist
 dist-ssr
 *.local
-src/firebase.*
 
 # Firebase cache
 .firebase/
@@ -26,3 +25,7 @@ src/firebase.*
 *.njsproj
 *.sln
 *.sw?
+
+# tmp files and private docs
+.tmp/
+docs/
